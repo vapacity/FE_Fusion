@@ -20,6 +20,8 @@ def parse_args():
     parser.add_argument('--event_vpr', action='store_true', help="Use both frames and events (default: False)")
     return parser.parse_args()
 
+args = parse_args()
+
 
 transform = transforms.Compose([
     transforms.Resize((256, 256)),
@@ -110,9 +112,9 @@ query_dir,database_dirs,triplet_file = generate_paths('experiment_1')
 save_dir = save_path + "result_2025_1_23/saved_model"
 loss_file = save_path +"result_2025_1_23/loss.txt"
 
-dataset = QueryDataset(triplet_file, query_dir, database_dirs, transform)
+dataset = QueryDataset(triplet_file, query_dir, database_dirs, transform, event_vpr=args.event_vpr)
 dataloader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=2)
-databaseDataset = DatabaseDataset(database_dirs=database_dirs,transform=transform)
+databaseDataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, event_vpr=args.event_vpr)
 database_loader = DataLoader(databaseDataset, batch_size=8, shuffle=False)
 
 
@@ -121,7 +123,7 @@ start_epoch = 1  # 默认从第 1 个 epoch 开始
 
 
 channel_sizes = [128, 256, 512]
-args = parse_args()
+
 
 # Default to using both frames and events if no specific argument is provided
 if args.use_frame and args.use_event:
@@ -137,7 +139,7 @@ class Net(nn.Module):
         else:
             self.main_model = FE_Net.MainNet(channel_sizes)  # Both frames and events
         if use_vpr:
-            self.est_model = EST_Net(use_adapter)
+            self.est_model = EST_Net.EST_Net(use_adapter=use_adapter)
         self.use_vpr = use_vpr
         self.use_adapter = use_adapter
 
@@ -265,7 +267,7 @@ for epoch in range(num_epochs):
         f.write(f'Epoch [{epoch+1}/{num_epochs}], Loss: {average_loss}\n')
 
     # 保存模型
-    model_path = os.path.join(save_dir, f'model_epoch_{epoch+1}.pth')
+    model_path = os.path.join(save_dir, f'model_{"eventVPR" if args.event_vpr else "FEFusion"}_epoch_{epoch+1}.pth')
     os.makedirs(save_dir,exist_ok=True)
     
     torch.save(model.state_dict(), model_path)

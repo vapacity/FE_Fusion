@@ -27,6 +27,8 @@ def process_event_to_txt(bag_file, timestamps_file, output_dir, time_tolerance=0
             start_time = timestamp - time_tolerance
             end_time = timestamp + time_tolerance
 
+            # breakpoint()
+
             # 跳过早于当前时间窗开始时间的事件
             while t and t.to_sec() < start_time:
                 topic, msg, t = next(it, (None, None, None))
@@ -42,10 +44,10 @@ def process_event_to_txt(bag_file, timestamps_file, output_dir, time_tolerance=0
             with open(output_file, 'w') as f:
                 for event_msg in events:
                     for event in event_msg.events:
-                        x, y, p = event.x, event.y, int(event.polarity)
+                        secs, nsecs, x, y, p = event.ts.secs, event.ts.nsecs, event.x, event.y, int(event.polarity)
                         # 写入格式：timestamp polarity y x
                         if t:
-                            f.write(f"{t.to_sec()} {x} {y} {p}\n")
+                            f.write(f"{secs} {nsecs} {x} {y} {p}\n")
 
             # 更新进度条
             pbar.update(1)
@@ -72,6 +74,6 @@ file_name_dict = {
 for name in file_name:
     bag_file = '/root/autodl-tmp/bags/' + file_name_dict[name] + '.bag'
     timestamp_file = '/root/autodl-tmp/processed_data/' + name + '/timestamp.txt'
-    output_dir = '/root/autodl-tmp/processed_data/' + name
+    output_dir = '/root/autodl-tmp/processed_data/' + name + '/bin'
     # 调用函数
     process_event_to_txt(bag_file, timestamp_file, output_dir)  # 这里设定了frame_interval，根据需要调整
