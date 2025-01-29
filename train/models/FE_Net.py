@@ -14,12 +14,13 @@ class MainNet(nn.Module):
         self.mf_sub_net2 = MF_Net.MF_SubNet2(channel_sizes)  # 假设 MF_SubNet2 在 MF_Net 模块中定义
         self.drw_net = DRW_Net.DRW_Net()  # 假设 DRW_Net 在 DRW_Net 模块中定义
 
-    def forward(self, frames,events):
+    def forward(self, frames, events):
         # TSFE_Net 的前向传播
-        tsfe_output = self.tsfe_net(frames,events)
+        tsfe_output = self.tsfe_net(frames, events)
         
         # MF_Net 的前向传播
         S1,S2,S3,M1 = self.mf_main_net(tsfe_output)
+        
         #print('testpoint1: S1',S1.shape,'S2',S2.shape,'S3',S3.shape)
         M3,processed_S2 =self.mf_sub_net1(S1,S2)
         M2 = self.mf_sub_net2(processed_S2,S3)

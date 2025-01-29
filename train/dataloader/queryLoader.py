@@ -16,7 +16,7 @@ def normalize_event_volume(event_volume):
     return event_volume
 
 class QueryDataset(Dataset):
-    def __init__(self, txt_file, query_dir, database_dirs, transform=None):
+    def __init__(self, txt_file, query_dir, database_dirs, transform=None, event_vpr=False):
         """
         Args:
             txt_file (str): 包含三元组信息的txt文件路径。
@@ -27,6 +27,7 @@ class QueryDataset(Dataset):
         self.query_dir = query_dir
         self.database_dirs = database_dirs
         self.transform = transform
+        self.event_vpr = event_vpr
         
         # 解析txt文件，获取query, positive, negatives的时间戳
         self.triplets = self._parse_triplets(txt_file)
@@ -59,7 +60,10 @@ class QueryDataset(Dataset):
             if file_type == "frame":
                 file_path = os.path.join(dir, "frame", f"{timestamp}.png")
             elif file_type == "event":
-                file_path = os.path.join(dir, "event", f"{timestamp}.npy")
+                if not self.event_vpr:
+                    file_path = os.path.join(dir, "event", f"{timestamp}.npy")
+                else:
+                    file_path = os.path.join(dir, "event", f"bin_{timestamp}.txt")
             
             if os.path.exists(file_path):
                 return file_path  # 返回第一个找到的路径
@@ -95,6 +99,29 @@ class QueryDataset(Dataset):
         event_volume = torch.tensor(event_volume).float()
         event_volume = torch.nn.functional.interpolate(event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
         return event_volume
+    
+    def _load_event_bin(self, dir, timestamp):
+        """
+        加载事件体素网格的bin（用于Event-VPR）
+        Args:
+            dir (str): 文件所在的目录（database_dirs中的某一个）。
+            timestamp (str): 事件体数据的时间戳。
+            mlp_layer: 外部传入的mlp层，用于做EST处理
+        Returns:
+            Tensor: 加载的事件体数据。
+        """
+        event_bin_txt_path = os.path.join(dir, "event", f"bin_{timestamp}.txt")
+        data = []
+        with open(event_bin_txt_path, 'r') as f:
+            for line in f:
+                # Split the line into components (timestamp, x, y, polarity)
+                components = line.strip().split()
+                if len(components) == 4:  # Ensure the line has 4 elements
+                    t = float(components[0])  # Convert timestamp to float
+                    x, y, p = map(int, components[1:])  # Convert x, y, p to integers
+                    data.append([t, x, y, p])
+        # data: [n, 4]
+        return data
 
     def __len__(self):
         return len(self.triplets)
@@ -120,10 +147,23 @@ class QueryDataset(Dataset):
         if self.transform:
             pos_frame = self.transform(pos_frame)
 
-        pos_event_volume = np.load(pos_event_path)
-        pos_event_volume = normalize_event_volume(pos_event_volume)
-        pos_event_volume = torch.tensor(pos_event_volume).float()
-        pos_event_volume = torch.nn.functional.interpolate(pos_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
+        if not self.event_vpr:
+            pos_event_volume = np.load(pos_event_path)
+            pos_event_volume = normalize_event_volume(pos_event_volume)
+            pos_event_volume = torch.tensor(pos_event_volume).float()
+            pos_event_volume = torch.nn.functional.interpolate(pos_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
+        else:
+            data = []
+            with open(pos_event_path, 'r') as f:
+                for line in f:
+                    # Split the line into components (timestamp, x, y, polarity)
+                    components = line.strip().split()
+                    if len(components) == 4:  # Ensure the line has 4 elements
+                        t = float(components[0])  # Convert timestamp to float
+                        x, y, p = map(int, components[1:])  # Convert x, y, p to integers
+                        data.append([t, x, y, p])
+            pos_event_volume = data
+
 
         # 加载负样本，在database_dirs中查找每一个负样本
         neg_frames = []
@@ -142,13 +182,26 @@ class QueryDataset(Dataset):
             neg_frames.append(neg_frame)
             #print("in load Data neg frame:",neg_frame.size())
     
+            if not self.event_vpr:
+                neg_event_volume = np.load(neg_event_path)
+                neg_event_volume = normalize_event_volume(neg_event_volume)
+                neg_event_volume = torch.tensor(neg_event_volume).float()
+                neg_event_volume = torch.nn.functional.interpolate(neg_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
+                neg_event_volumes.append(neg_event_volume)
+                #print("in load Data neg event:",neg_event_volume.size())
+            else:
+                data = []
+                with open(neg_event_path, 'r') as f:
+                    for line in f:
+                        # Split the line into components (timestamp, x, y, polarity)
+                        components = line.strip().split()
+                        if len(components) == 4:  # Ensure the line has 4 elements
+                            t = float(components[0])  # Convert timestamp to float
+                            x, y, p = map(int, components[1:])  # Convert x, y, p to integers
+                            data.append([t, x, y, p])
+                neg_event_volumes.append(data)
+                
 
-            neg_event_volume = np.load(neg_event_path)
-            neg_event_volume = normalize_event_volume(neg_event_volume)
-            neg_event_volume = torch.tensor(neg_event_volume).float()
-            neg_event_volume = torch.nn.functional.interpolate(neg_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
-            neg_event_volumes.append(neg_event_volume)
-            #print("in load Data neg event:",neg_event_volume.size())
         # 将列表转为张量
         neg_frames = torch.stack(neg_frames)  # 形状为 [10, 1, 256, 256]
         neg_event_volumes = torch.stack(neg_event_volumes)  # 形状为 [10, C, 256, 256]
