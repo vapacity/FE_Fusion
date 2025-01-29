@@ -4,6 +4,10 @@ from torch.utils.data import Dataset,DataLoader
 from PIL import Image
 import numpy as np
 import torchvision.transforms as transforms
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
+from data_utils import get_data_from_path
+
 def normalize_event_volume(event_volume):
     # # 找到数组中的最大值
     # max_value = np.max(event_volume)
@@ -30,6 +34,29 @@ class DatabaseDataset(Dataset):
 
         # 获取所有数据库文件中的时间戳
         self.database_timestamps = self._get_database_timestamps()
+        self.max_event_len = self._get_max_lines_in_bin_txt()
+        
+    def _get_max_lines_in_bin_txt(self):
+        """
+        获取 `database_dir/bin/` 目录下所有 `.txt` 文件的最大行数。
+        如果目录不存在，则直接抛出 FileNotFoundError。
+        """
+
+        max_lines = 0
+        for database_dir in self.database_dirs:
+            bin_dir = os.path.join(database_dir, "bin")
+            
+            if not os.path.exists(bin_dir):
+                raise FileNotFoundError(f"Error: Directory '{bin_dir}' does not exist!")
+
+            for filename in os.listdir(bin_dir):
+                if filename.endswith(".txt"):
+                    file_path = os.path.join(bin_dir, filename)
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        num_lines = sum(1 for _ in f)  # 计算文件的行数
+                        max_lines = max(max_lines, num_lines)  # 记录最大行数
+        
+        return max_lines
 
     def _get_database_timestamps(self):
         """
@@ -94,18 +121,9 @@ class DatabaseDataset(Dataset):
         Returns:
             Tensor: 加载的事件体数据。
         """
-        event_bin_txt_path = os.path.join(dir, "event", f"bin_{timestamp}.txt")
-        data = []
-        with open(event_bin_txt_path, 'r') as f:
-            for line in f:
-                # Split the line into components (timestamp, x, y, polarity)
-                components = line.strip().split()
-                if len(components) == 4:  # Ensure the line has 4 elements
-                    t = float(components[0])  # Convert timestamp to float
-                    x, y, p = map(int, components[1:])  # Convert x, y, p to integers
-                    data.append([t, x, y, p])
+        event_bin_txt_path = os.path.join(dir, "bin", f"bin_{timestamp}.txt")
+        data = get_data_from_path(event_bin_txt_path, self.max_event_len)
         # data: [n, 4]
-
         return data
 
     def __len__(self):
