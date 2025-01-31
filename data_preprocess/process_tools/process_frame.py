@@ -3,14 +3,6 @@ import cv2
 import rosbag
 from cv_bridge import CvBridge
 from tqdm import tqdm
-file_name=[
-# 'dvs_vpr_2020-04-21-17-03-03',
-# 'dvs_vpr_2020-04-22-17-24-21',
-'dvs_vpr_2020-04-24-15-12-03',
-# 'dvs_vpr_2020-04-27-18-13-29',
-'dvs_vpr_2020-04-28-09-14-11',
-'dvs_vpr_2020-04-29-06-20-23'
-]
 # 函数: process_frame
 # 用途：从bag_file中读取图像帧信息，以frame_initerval为读取的两帧之间的间隔
 def process_frame(bag_file, output_dir, frame_interval):
@@ -45,9 +37,3 @@ def process_frame(bag_file, output_dir, frame_interval):
                 #if output_count >= max_output:
                 #    break
         pbar.close()  # 关闭进度条
-
-# 调用函数
-for name in file_name:
-    bag_file = '/root/autodl-fs/Brizbane_dataset/'+name+'.bag'
-    output_dir = '/root/autodl-tmp/processed_data/'+name+'/frame/'
-    process_frame(bag_file, output_dir, frame_interval=0.25)  # 这里设定了frame_interval，根据需要调整

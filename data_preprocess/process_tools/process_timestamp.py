@@ -32,8 +32,3 @@ def get_index(frame_path,output_file):
         for timestamp in timestamps:
             f.write(f"{timestamp}\n")
 
-# 调用get_index      
-for name in file_name:
-    frame_path = '/root/autodl-tmp/processed_data/'+name+'/frame/'
-    output_file = '/root/autodl-tmp/processed_data/'+name+'/timestamp.txt'
-    get_index(frame_path,output_file)
