@@ -1,7 +1,7 @@
 import pynmea2
 import numpy as np
 from tqdm import tqdm
-from helpers import read_gps_data,read_timestamp
+from process_tools.helpers import read_gps_data,read_timestamp
 gps_file_name=[
 #'20200421_170039-sunset1_concat',
 #'20200422_172431-sunset2_concat',
@@ -57,9 +57,3 @@ def interpolate_gps_data(timestamp_file, gps_file_path, interpolated_gps_path):
     with open(interpolated_gps_path, 'w') as f:
         for data in interpolated_data:
             f.write(f"{repr(data[0])} {repr(data[1])} {repr(data[2])}\n")
-
-for name in file_name:
-    timestamp_file = '/root/autodl-tmp/processed_data/'+ name+'/timestamp.txt'
-    gps_file =  '/root/autodl-tmp/processed_data/'+ name+'/gps.txt'
-    interpolated_gps_file ='/root/autodl-tmp/processed_data/'+ name+'/interpolated_gps.txt'
-    interpolate_gps_data(timestamp_file,gps_file,interpolated_gps_file)

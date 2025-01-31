@@ -138,10 +138,3 @@ def find_triplet_samples(query_gps_path, database_gps_paths, save_path,pos_thres
 
         return triplet_samples
     
-#query_dir = "/root/autodl-tmp/processed_data/dvs_vpr_2020-04-28-09-14-11"
-#database_dirs =  ["/root/autodl-tmp/processed_data/dvs_vpr_2020-04-282-17-24-21","/root/autodl-tmp/processed_data/dvs_vpr_2020-04-24-15-12-03"]
-
-query_gps_path = "/root/autodl-tmp/processed_data/dvs_vpr_2020-04-29-06-20-23/interpolated_gps.txt"
-database_gps_paths = ["/root/autodl-tmp/processed_data/dvs_vpr_2020-04-24-15-12-03/interpolated_gps.txt","/root/autodl-tmp/processed_data/dvs_vpr_2020-04-28-09-14-11/interpolated_gps.txt"]
-save_path = "/root/autodl-tmp/processed_data/dvs_vpr_2020-04-29-06-20-23/triplet_result.txt"
-find_triplet_samples(query_gps_path,database_gps_paths,save_path)

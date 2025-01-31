@@ -1,29 +1,26 @@
 import pynmea2
 import numpy as np
 import os
-from helpers import convert_time_to_rostime,devide_name_to_time
+from process_tools.helpers import convert_time_to_rostime,devide_name_to_time
 gps_file_name=[
 '20200421_170039-sunset1_concat',
 '20200422_172431-sunset2_concat',
 '20200424_151015-daytime_concat',
-'20200427_181204-night_concat',
 '20200428_091154-morning_concat',
 '20200429_061912-sunrise_concat'
 ]
 
 file_name=[
-'dvs_vpr_2020-04-21-17-03-03',
-'dvs_vpr_2020-04-22-17-24-21',
-'dvs_vpr_2020-04-24-15-12-03',
-'dvs_vpr_2020-04-27-18-13-29',
-'dvs_vpr_2020-04-28-09-14-11',
-'dvs_vpr_2020-04-29-06-20-23']
+'ss1',
+'ss2',
+'dt',
+'mn',
+'sr']
 
 bias = [
 1587452582.35,
 1587540271.65,
 1587705130.80,
-1587975221.10,
 1588029265.73,
 1588105232.91]
 
@@ -96,5 +93,6 @@ def process_gps(gps_file_name, file_name, bias):
     # 返回处理后的GPS数据
     return gps_data
 
-for index in range(len(file_name)):
-    process_gps(gps_file_name[index],file_name[index],bias[index])
+def process_all_gps():
+    for index in range(len(file_name)):
+        process_gps(gps_file_name[index],file_name[index],bias[index])

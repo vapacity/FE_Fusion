@@ -1,19 +1,25 @@
 import os
 from process_tools.process_event import process_event
 from process_tools.process_frame import process_frame
-from process_tools.process_gps import process_gps
+from process_tools.process_gps import process_all_gps
 from process_tools.process_triplet import find_triplet_samples
 from process_tools.process_interpolated_gps import interpolate_gps_data
 from process_tools.process_timestamp import get_index
-
+from process_tools.filt_events import filt
 dataset = {
     'ss1': 'dvs_vpr_2020-04-21-17-03-03',
     'ss2': 'dvs_vpr_2020-04-22-17-24-21',
-    'dt': 'dvs_vpr_2020-04-24-15-12-03',
-    'mn': 'dvs_vpr_2020-04-28-09-14-11',
-    'sr': 'dvs_vpr_2020-04-29-06-20-23'
+    'dt' : 'dvs_vpr_2020-04-24-15-12-03',
+    'mn' : 'dvs_vpr_2020-04-28-09-14-11',
+    'sr' : 'dvs_vpr_2020-04-29-06-20-23'
 }
-
+remaining_count = {
+    'ss1': 2181,
+    'ss2': 1768,
+    'dt' : 2234,
+    'mn' : 2478,
+    'sr' : 2620
+}
 input_file_path = '/root/autodl-fs/Brizbane_dataset/'
 output_file_path = '/root/autodl-tmp/processed_data/'
 
@@ -50,9 +56,20 @@ for key, name in dataset.items():
     else:
         print(f"Event processing for {key} already done. Skipping...")
 
+print("filtering events and frames")
+for key,name in dataset.items():
+    filt(f"{output_file_path}{key}",remaining_count[key])
+    
+# 对每个数据集的timestamp进行预处理（提取时间戳）
+print("processing timestamp")
+for key, name in dataset.items():
+    frame_path = f"{output_file_path}{key}/frame/"
+    output_file = f"{output_file_path}{key}/timestamp.txt"
+    get_index(frame_path, output_file)
+        
 # GPS信息的处理，假设process_gps()会处理所有的GPS相关任务
 print("processing gps")
-process_gps()
+process_all_gps()
 
 # 基于时间戳对GPS数据进行插值
 print("interpolating gps")

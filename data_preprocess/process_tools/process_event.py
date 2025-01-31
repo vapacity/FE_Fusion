@@ -3,16 +3,8 @@ import rosbag
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-from helpers import read_timestamp
+from process_tools.helpers import read_timestamp
 import h5py
-file_name=[
-#'dvs_vpr_2020-04-21-17-03-03',
-#'dvs_vpr_2020-04-22-17-24-21',
-'dvs_vpr_2020-04-24-15-12-03',
-#'dvs_vpr_2020-04-27-18-13-29',
-'dvs_vpr_2020-04-28-09-14-11',
-'dvs_vpr_2020-04-29-06-20-23'
-]
 
 
 # def process_event(bag_file, timestamps_file, output_file, time_tolerance=0.0125):
@@ -114,15 +106,6 @@ def process_event(bag_file, timestamps_file, output_dir, time_tolerance=0.0125):
             pbar.update(1)
 
         pbar.close()  # 完成所有任务后关闭进度条
-
-
-
-for name in file_name:
-    bag_file = '/root/autodl-fs/Brizbane_dataset/'+name+'.bag'
-    timestamp_file = '/root/autodl-tmp/processed_data/'+name+'/timestamp.txt'
-    output_dir = '/root/autodl-tmp/processed_data/'+name+'/event/'
-    # 调用函数
-    process_event(bag_file, timestamp_file,output_dir)  # 这里设定了frame_interval，根据需要调整
 
 
 
