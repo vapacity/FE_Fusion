@@ -4,6 +4,10 @@ from torch.utils.data import Dataset,DataLoader
 from PIL import Image
 import numpy as np
 import torchvision.transforms as transforms
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
+from data_utils import get_data_from_path
+
 def normalize_event_volume(event_volume):
     # max_value = np.max(event_volume)
 
@@ -16,7 +20,7 @@ def normalize_event_volume(event_volume):
     return event_volume
 
 class QueryDataset(Dataset):
-    def __init__(self, txt_file, query_dir, database_dirs, transform=None):
+    def __init__(self, txt_file, query_dir, database_dirs, transform=None, event_vpr=False):
         """
         Args:
             txt_file (str): 包含三元组信息的txt文件路径。
@@ -27,9 +31,32 @@ class QueryDataset(Dataset):
         self.query_dir = query_dir
         self.database_dirs = database_dirs
         self.transform = transform
+        self.event_vpr = event_vpr
         
         # 解析txt文件，获取query, positive, negatives的时间戳
         self.triplets = self._parse_triplets(txt_file)
+        self.max_event_len = self._get_max_lines_in_bin_txt()
+
+    def _get_max_lines_in_bin_txt(self):
+        """
+        获取 `query_dir/bin/` 目录下所有 `.txt` 文件的最大行数。
+        如果目录不存在，则直接抛出 FileNotFoundError。
+        """
+        bin_dir = os.path.join(self.query_dir, "bin")
+        
+        if not os.path.exists(bin_dir):
+            raise FileNotFoundError(f"Error: Directory '{bin_dir}' does not exist!")
+
+        max_lines = 0
+
+        for filename in os.listdir(bin_dir):
+            if filename.endswith(".txt"):
+                file_path = os.path.join(bin_dir, filename)
+                with open(file_path, "r", encoding="utf-8") as f:
+                    num_lines = sum(1 for _ in f)  # 计算文件的行数
+                    max_lines = max(max_lines, num_lines)  # 记录最大行数
+        
+        return max_lines
     
     def _parse_triplets(self, txt_file):
         """
@@ -59,7 +86,10 @@ class QueryDataset(Dataset):
             if file_type == "frame":
                 file_path = os.path.join(dir, "frame", f"{timestamp}.png")
             elif file_type == "event":
-                file_path = os.path.join(dir, "event", f"{timestamp}.npy")
+                if not self.event_vpr:
+                    file_path = os.path.join(dir, "event", f"{timestamp}.npy")
+                else:
+                    file_path = os.path.join(dir, "event", f"bin_{timestamp}.txt")
             
             if os.path.exists(file_path):
                 return file_path  # 返回第一个找到的路径
@@ -95,6 +125,21 @@ class QueryDataset(Dataset):
         event_volume = torch.tensor(event_volume).float()
         event_volume = torch.nn.functional.interpolate(event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
         return event_volume
+    
+    def _load_event_bin(self, dir, timestamp):
+        """
+        加载事件体素网格的bin（用于Event-VPR）
+        Args:
+            dir (str): 文件所在的目录（database_dirs中的某一个）。
+            timestamp (str): 事件体数据的时间戳。
+            mlp_layer: 外部传入的mlp层，用于做EST处理
+        Returns:
+            Tensor: 加载的事件体数据。
+        """
+        event_bin_txt_path = os.path.join(dir, "bin", f"bin_{timestamp}.txt")
+        data =  get_data_from_path(event_bin_txt_path, self.max_event_len)
+        # data: [n, 4]
+        return data
 
     def __len__(self):
         return len(self.triplets)
@@ -108,7 +153,10 @@ class QueryDataset(Dataset):
 
         # 加载正样本，首先在database_dirs中查找正样本
         pos_frame_path = self._find_file_in_database(pos_timestamp, "frame")
-        pos_event_path = self._find_file_in_database(pos_timestamp, "event")
+        if not self.event_vpr:
+            pos_event_path = self._find_file_in_database(pos_timestamp, "event")
+        else:
+            pos_event_path = self._find_file_in_database(pos_timestamp, "bin")
 
         if pos_frame_path is None :
             raise FileNotFoundError(f"Positive frame path not found for timestamp {pos_timestamp}")
@@ -120,10 +168,15 @@ class QueryDataset(Dataset):
         if self.transform:
             pos_frame = self.transform(pos_frame)
 
-        pos_event_volume = np.load(pos_event_path)
-        pos_event_volume = normalize_event_volume(pos_event_volume)
-        pos_event_volume = torch.tensor(pos_event_volume).float()
-        pos_event_volume = torch.nn.functional.interpolate(pos_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
+        if not self.event_vpr:
+            pos_event_volume = np.load(pos_event_path)
+            pos_event_volume = normalize_event_volume(pos_event_volume)
+            pos_event_volume = torch.tensor(pos_event_volume).float()
+            pos_event_volume = torch.nn.functional.interpolate(pos_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
+        else:
+            data = get_data_from_path(pos_event_path, self.max_event_len)
+            pos_event_volume = data
+
 
         # 加载负样本，在database_dirs中查找每一个负样本
         neg_frames = []
@@ -131,7 +184,10 @@ class QueryDataset(Dataset):
 
         for neg_timestamp in neg_timestamps:
             neg_frame_path = self._find_file_in_database(neg_timestamp, "frame")
-            neg_event_path = self._find_file_in_database(neg_timestamp, "event")
+            if not self.event_vpr:
+                neg_event_path = self._find_file_in_database(neg_timestamp, "event")
+            else:
+                neg_event_path = self._find_file_in_database(neg_timestamp, "bin")
 
             if neg_frame_path is None or neg_event_path is None:
                 raise FileNotFoundError(f"Negative sample not found for timestamp {neg_timestamp}")
@@ -142,15 +198,20 @@ class QueryDataset(Dataset):
             neg_frames.append(neg_frame)
             #print("in load Data neg frame:",neg_frame.size())
     
+            if not self.event_vpr:
+                neg_event_volume = np.load(neg_event_path)
+                neg_event_volume = normalize_event_volume(neg_event_volume)
+                neg_event_volume = torch.tensor(neg_event_volume).float()
+                neg_event_volume = torch.nn.functional.interpolate(neg_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
+                neg_event_volumes.append(neg_event_volume)
+                #print("in load Data neg event:",neg_event_volume.size())
+            else:
+                data = get_data_from_path(neg_event_path, self.max_event_len)
+                neg_event_volumes.append(data)  # neg_event_volumes [n,4]
+                
 
-            neg_event_volume = np.load(neg_event_path)
-            neg_event_volume = normalize_event_volume(neg_event_volume)
-            neg_event_volume = torch.tensor(neg_event_volume).float()
-            neg_event_volume = torch.nn.functional.interpolate(neg_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
-            neg_event_volumes.append(neg_event_volume)
-            #print("in load Data neg event:",neg_event_volume.size())
         # 将列表转为张量
-        neg_frames = torch.stack(neg_frames)  # 形状为 [10, 1, 256, 256]
-        neg_event_volumes = torch.stack(neg_event_volumes)  # 形状为 [10, C, 256, 256]
+        neg_frames = torch.stack(neg_frames)  # 形状为 [num, 1, 256, 256]
+        neg_event_volumes = torch.stack(neg_event_volumes)  # 形状为 [num, C, 256, 256] 或 [num, max_N, 4]
         #print("in load Data:",len(neg_frames),len(neg_event_volumes))
         return query_frame, query_event_volume, pos_frame, pos_event_volume, neg_frames, neg_event_volumes

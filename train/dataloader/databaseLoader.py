@@ -4,6 +4,10 @@ from torch.utils.data import Dataset,DataLoader
 from PIL import Image
 import numpy as np
 import torchvision.transforms as transforms
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
+from data_utils import get_data_from_path
+
 def normalize_event_volume(event_volume):
     # # 找到数组中的最大值
     # max_value = np.max(event_volume)
@@ -18,7 +22,7 @@ def normalize_event_volume(event_volume):
     return event_volume
 
 class DatabaseDataset(Dataset):
-    def __init__(self, database_dirs, transform=None):
+    def __init__(self, database_dirs, transform=None, event_vpr=False):
         """
         Args:
             database_dirs (list): 数据库样本的文件夹路径列表。
@@ -26,9 +30,33 @@ class DatabaseDataset(Dataset):
         """
         self.database_dirs = database_dirs
         self.transform = transform
+        self.use_event_vpr = event_vpr
 
         # 获取所有数据库文件中的时间戳
         self.database_timestamps = self._get_database_timestamps()
+        self.max_event_len = self._get_max_lines_in_bin_txt()
+        
+    def _get_max_lines_in_bin_txt(self):
+        """
+        获取 `database_dir/bin/` 目录下所有 `.txt` 文件的最大行数。
+        如果目录不存在，则直接抛出 FileNotFoundError。
+        """
+
+        max_lines = 0
+        for database_dir in self.database_dirs:
+            bin_dir = os.path.join(database_dir, "bin")
+            
+            if not os.path.exists(bin_dir):
+                raise FileNotFoundError(f"Error: Directory '{bin_dir}' does not exist!")
+
+            for filename in os.listdir(bin_dir):
+                if filename.endswith(".txt"):
+                    file_path = os.path.join(bin_dir, filename)
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        num_lines = sum(1 for _ in f)  # 计算文件的行数
+                        max_lines = max(max_lines, num_lines)  # 记录最大行数
+        
+        return max_lines
 
     def _get_database_timestamps(self):
         """
@@ -81,6 +109,22 @@ class DatabaseDataset(Dataset):
         event_volume = torch.tensor(event_volume).float()
         event_volume = torch.nn.functional.interpolate(event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
         return event_volume
+    
+
+    def _load_event_bin(self, dir, timestamp):
+        """
+        加载事件体素网格的bin（用于Event-VPR）
+        Args:
+            dir (str): 文件所在的目录（database_dirs中的某一个）。
+            timestamp (str): 事件体数据的时间戳。
+            mlp_layer: 外部传入的mlp层，用于做EST处理
+        Returns:
+            Tensor: 加载的事件体数据。
+        """
+        event_bin_txt_path = os.path.join(dir, "bin", f"bin_{timestamp}.txt")
+        data = get_data_from_path(event_bin_txt_path, self.max_event_len)
+        # data: [n, 4]
+        return data
 
     def __len__(self):
         return len(self.database_timestamps)
@@ -95,7 +139,10 @@ class DatabaseDataset(Dataset):
 
             if os.path.exists(frame_path) and os.path.exists(event_path):
                 frame = self._load_frame(dir, timestamp)
-                event_volume = self._load_event_volume(dir, timestamp)
+                if self.use_event_vpr:
+                    event_volume = self._load_event_bin(dir, timestamp)
+                else:
+                    event_volume = self._load_event_volume(dir, timestamp)
                 return frame, event_volume
 
         raise FileNotFoundError(f"No data found for timestamp {timestamp}")
