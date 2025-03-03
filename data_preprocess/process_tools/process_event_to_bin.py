@@ -7,7 +7,7 @@ from helpers import read_timestamp
 import h5py
 
 
-def process_event_to_txt(bag_file, timestamps_file, output_dir, time_tolerance=0.0125):
+def process_event_to_txt(bag_file, timestamps_file, output_dir, time_tolerance=0.0125): # 25ms 0.025
     timestamps = read_timestamp(timestamps_file)
 
     with rosbag.Bag(bag_file, 'r') as bag:
@@ -38,16 +38,19 @@ def process_event_to_txt(bag_file, timestamps_file, output_dir, time_tolerance=0
                 events.append(msg)  # 假设这里我们仅仅收集消息，具体处理根据需求
                 topic, msg, t = next(it, (None, None, None))
 
-            # 将收集的事件逐行写入 .txt 文件
+            # 将收集的事件逐行写入 .npy 文件
             timestamp_str = f"{timestamp}"  # 保留6位小数
-            output_file = os.path.join(output_dir, f"bin_{timestamp_str}.txt")
-            with open(output_file, 'w') as f:
-                for event_msg in events:
+            output_list = []
+            for event_msg in events:
                     for event in event_msg.events:
                         secs, nsecs, x, y, p = event.ts.secs, event.ts.nsecs, event.x, event.y, int(event.polarity)
                         # 写入格式：timestamp polarity y x
                         if t:
-                            f.write(f"{secs} {nsecs} {x} {y} {p}\n")
+                            output_list.append([secs, nsecs, x, y, p])
+            output_file = os.path.join(output_dir, f"bin_{timestamp_str}.npy")
+            # 把output_list保存成npy
+            np.save(output_file, output_list)
+
 
             # 更新进度条
             pbar.update(1)

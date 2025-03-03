@@ -1,7 +1,7 @@
 import os
 import torch
 from torch.utils.data import DataLoader
-from train.dataloader.databaseLoader import DatabaseDataset
+from train.dataloader.databaseDataset import DatabaseDataset
 from torch.nn import CosineSimilarity
 from geopy.distance import geodesic
 from tqdm import tqdm
