@@ -3,6 +3,7 @@ import torch.nn as nn
 from os.path import join, dirname, isfile
 import tqdm
 import numpy as np
+import torch.nn.functional as F
 
 
 class ValueLayer(nn.Module):
@@ -95,20 +96,20 @@ class EST_Net(nn.Module):
     def forward(self, events):
         # events is a tensor of shape (N, 5), where N is the number of events
         # 这里的期望输入是所有的tensor已经拼起来了
-        # points is a list, since events can have any size
         B = int((1+events[-1,-1]).item())   # 最后的那个B应该是Batch_index里最大的缩影，就是batch_size
         num_voxels = int(2 * np.prod(self.voxel_dim) * B)
         vox = events[0].new_full([num_voxels,], fill_value=0)
         C, H, W = self.voxel_dim
 
         # get values for each channel
-        x, y, t, p, b = events.t()  # 转置
+        t, x, y, p, b = events.t()  # 转置
+
+        x = torch.clamp(x, 0, W - 1)
+        y = torch.clamp(y, 0, H - 1)
 
         # normalizing timestamps
         for bi in range(B):
             t[events[:,-1] == bi] /= t[events[:,-1] == bi].max()
-
-        p = (p+1)/2  # maps polarity to 0, 1
 
         idx_before_bins = x \
                           + W * y \
@@ -128,7 +129,6 @@ class EST_Net(nn.Module):
 
         if self.use_adapter:
             vox = self.adapter_conv(vox)
-
         vox = torch.nn.functional.interpolate(vox, size=(256, 256), mode='bilinear', align_corners=False)
 
         return vox

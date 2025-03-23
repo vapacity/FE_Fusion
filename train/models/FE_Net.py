@@ -25,7 +25,6 @@ class MainNet(nn.Module):
         M3,processed_S2 =self.mf_sub_net1(S1,S2)
         M2 = self.mf_sub_net2(processed_S2,S3)
         #print('testpoint2: M1',M1.shape,'M2',M2.shape,'M3',M3.shape)
-        
         # DRW_Net 的前向传播
         drw_output = self.drw_net(M1,M2,M3)
         

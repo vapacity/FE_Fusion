@@ -8,21 +8,20 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from dataUtils import get_data_from_path
 
-def normalize_event_volume(event_volume):
-    # # 找到数组中的最大值
-    # max_value = np.max(event_volume)
+def normalize_event_volume(tensor):
+    current_max = tensor.max()
     
-    # # 避免除以零的情况
-    # if max_value == 0:
-    #     return event_volume  # 如果最大值是0，则直接返回原数组
+    # 将张量归一化到最大值为 255 的范围
+    if current_max > 0:  # 避免除以零
+        # 计算缩放因子
+        scale_factor = 255.0 / current_max
+        # 缩放张量并转换为整型
+        tensor = (tensor * scale_factor).floor()
     
-    # # 归一化处理
-    # normalized_volume = event_volume / max_value
-    # return normalized_volume
-    return event_volume
+    return tensor
 
 class DatabaseDataset(Dataset):
-    def __init__(self, database_dirs, transform=None, event_vpr=False):
+    def __init__(self, database_dirs, transform=None, event_vpr=False, use_dift=False, use_timestamps_from_gps=False):
         """
         Args:
             database_dirs (list): 数据库样本的文件夹路径列表。
@@ -31,9 +30,26 @@ class DatabaseDataset(Dataset):
         self.database_dirs = database_dirs
         self.transform = transform
         self.use_event_vpr = event_vpr
+        self.use_dift = use_dift
+        self.use_timestamps_from_gps = use_timestamps_from_gps
 
         # 获取所有数据库文件中的时间戳
-        self.database_timestamps = self._get_database_timestamps()
+        if self.use_timestamps_from_gps:
+            self.database_timestamps = self._get_database_timestamps_from_GPS()
+        else:
+            self.database_timestamps = self._get_database_timestamps()
+    
+    def _get_database_timestamps_from_GPS(self):
+        timestamps = set()
+        for dir in self.database_dirs:
+            frame_dir = os.path.join(dir, "frame")
+            event_dir = os.path.join(dir, "event")
+            interpolated_gps_path = os.path.join(dir, "interpolated_gps.txt")
+            with open(interpolated_gps_path, 'r') as f:
+                for line in f:
+                    lat, lon, timestamp = line.strip().split()
+                    timestamps.add(timestamp)
+        return sorted(list(timestamps))
     
 
     def _get_database_timestamps(self):
@@ -67,7 +83,7 @@ class DatabaseDataset(Dataset):
             Image: 加载的图像。
         """
         frame_path = os.path.join(dir, "frame", f"{timestamp}.png")
-        frame = Image.open(frame_path).convert('L')  # 转换为灰度图
+        frame = Image.open(frame_path).convert('L')  # 转换为单通道灰度图
         if self.transform:
             frame = self.transform(frame)
         return frame
@@ -83,8 +99,8 @@ class DatabaseDataset(Dataset):
         """
         event_path = os.path.join(dir, "event", f"{timestamp}.npy")
         event_volume = np.load(event_path)
-        event_volume = normalize_event_volume(event_volume)
         event_volume = torch.tensor(event_volume).float()
+        event_volume = normalize_event_volume(event_volume)
         event_volume = torch.nn.functional.interpolate(event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
         return event_volume
     
@@ -99,7 +115,7 @@ class DatabaseDataset(Dataset):
         Returns:
             Tensor: 加载的事件体数据。
         """
-        event_bin_txt_path = os.path.join(dir, "bin", f"bin_{timestamp}.npy")
+        event_bin_txt_path = os.path.join(dir, "bin", f"{timestamp}.npy")
         data = get_data_from_path(event_bin_txt_path)
         # data: [n, 4]
         return data
@@ -114,13 +130,26 @@ class DatabaseDataset(Dataset):
         for dir in self.database_dirs:
             frame_path = os.path.join(dir, "frame", f"{timestamp}.png")
             event_path = os.path.join(dir, "event", f"{timestamp}.npy")
+            dift_feat_0_path = os.path.join(dir, "dift_feat_0", f"{timestamp}.pt")
+            dift_feat_1_path = os.path.join(dir, "dift_feat_1", f"{timestamp}.pt")
+            dift_feat_2_path = os.path.join(dir, "dift_feat_2", f"{timestamp}.pt")
 
-            if os.path.exists(frame_path) and os.path.exists(event_path):
-                frame = self._load_frame(dir, timestamp)
-                if self.use_event_vpr:
-                    event_volume = self._load_event_bin(dir, timestamp)
-                else:
-                    event_volume = self._load_event_volume(dir, timestamp)
-                return frame, event_volume
+            if self.use_dift:
+                if os.path.exists(dift_feat_0_path) and os.path.exists(dift_feat_1_path) and os.path.exists(dift_feat_2_path):
+                    if self.use_timestamps_from_gps:
+                        return torch.load(dift_feat_0_path), torch.load(dift_feat_1_path), torch.load(dift_feat_2_path), timestamp
+                    else:
+                        return torch.load(dift_feat_0_path), torch.load(dift_feat_1_path), torch.load(dift_feat_2_path)
+            else:
+                if os.path.exists(frame_path) and os.path.exists(event_path):
+                    frame = self._load_frame(dir, timestamp)
+                    if self.use_event_vpr:
+                        event_volume = self._load_event_bin(dir, timestamp)
+                    else:
+                        event_volume = self._load_event_volume(dir, timestamp)
+                    if self.use_timestamps_from_gps:
+                        return frame, event_volume, timestamp
+                    else:
+                        return frame, event_volume
 
         raise FileNotFoundError(f"No data found for timestamp {timestamp}")

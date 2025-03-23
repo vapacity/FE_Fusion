@@ -10,6 +10,7 @@ def filt(directory_path, remaining_count):
     """
     original_events_path = os.path.join(directory_path, "event")
     original_frames_path = os.path.join(directory_path, "frame")
+    original_bin_path = os.path.join(directory_path, "bin")
     
     # 存储每个文件的点数
     file_counts = []
@@ -25,20 +26,28 @@ def filt(directory_path, remaining_count):
             if count_of_ones > 0:
                 file_counts.append((filename, count_of_ones))
             else:
-                # 如果文件全零，则删除该文件和对应的 frame
+                # 如果文件全零，则删除该文件和对应的 frame, 以及对应的event frame
                 event_path = os.path.join(original_events_path, filename)
+                ev_frame_path = os.path.join(original_events_path, filename.replace(".npy", ".jpg"))
+                ev_bin_path = os.path.join(original_bin_path, filename)
                 frame_path = os.path.join(original_frames_path, filename.replace(".npy", ".png"))
-                
+                # 删除npy
                 if os.path.exists(event_path):
                     os.remove(event_path)
                     print(f"已删除全零事件文件：{event_path}")
+                if os.path.exists(ev_frame_path):
+                    os.remove(ev_frame_path)
+                    print(f"已删除全零事件帧文件：{ev_frame_path}")
+                if os.path.exists(ev_bin_path):
+                    os.remove(ev_bin_path)
+                    print(f"已删除全零事件bin文件：{ev_bin_path}")
                 if os.path.exists(frame_path):
                     os.remove(frame_path)
-                    print(f"已删除对应的 frame 文件：{frame_path}")
+                    print(f"已删除对应的RGB frame 文件：{frame_path}")
 
     # 如果文件数量已经达到目标数量，直接返回
     if len(file_counts) <= remaining_count:
-        print("不需要筛选，目标数量已满足。")
+        print(f"当前数量{len(file_counts)}，不需要筛选，目标数量{remaining_count}。")
         return
 
     # 按点数从小到大排序

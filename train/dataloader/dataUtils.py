@@ -12,16 +12,22 @@ def get_data_from_path(event_path):
     first_components = event_data[0]
     first_secs, first_nsecs = int(first_components[0]), int(first_components[1])
 
+
     for event_line in event_data:
-        components = event_data[0]
-        if len(components) == 5:  # 确保行包含 5 个元素 (secs, nsecs, x, y, p)
-            secs, nsecs, x, y, p = map(int, components)
+        if len(event_line) == 5:  # 确保行包含 5 个元素 (secs, nsecs, x, y, p)
+            secs, nsecs, x, y, p = map(int, event_line)
             # 计算相对时间戳（纳秒）
-            t = (secs - first_secs) * int(1e9) + (nsecs - first_nsecs)
+
+            t = (secs - first_secs) * int(1e6) + (nsecs - first_nsecs) / int(1e3)   # 防止上溢
             data.append([t, x, y, p])
+            # print(f"event:{[t, x, y, p]}")
+
 
     # 转换为 Tensor
     del event_data
     data = torch.tensor(data, dtype=torch.float)
 
     return data
+
+if __name__ == '__main__':
+    event_data = get_data_from_path('/root/autodl-tmp/processed_data/dt/bin/bin_1587705532.762891.npy')

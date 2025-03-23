@@ -30,6 +30,3 @@ def evaluate_precision_recall(similarity_matrix, ground_truth):
     plt.legend()
     plt.show()
 
-# ground_truth 是查询与数据库样本的真实匹配标签，二进制矩阵，1 表示匹配，0 表示不匹配
-# 计算 Precision-Recall 曲线和 F1-max
-evaluate_precision_recall(similarity_matrix, ground_truth)

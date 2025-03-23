@@ -7,14 +7,6 @@ from tqdm import tqdm
 import numpy as np
 from geopy.distance import geodesic
 
-file_name=[
-#'dvs_vpr_2020-04-21-17-03-03',
-#'dvs_vpr_2020-04-22-17-24-21',
-'dvs_vpr_2020-04-24-15-12-03',
-#'dvs_vpr_2020-04-27-18-13-29',
-'dvs_vpr_2020-04-28-09-14-11',
-'dvs_vpr_2020-04-29-06-20-23']
-
 
 def read_hdf5_gps_data(h5_file_path):
     gps_data = []
@@ -137,4 +129,37 @@ def find_triplet_samples(query_gps_path, database_gps_paths, save_path,pos_thres
                 file.write(line)
 
         return triplet_samples
+    
+
+def find_triplet_samples_dummy(query_gps_path, save_path):
+    # 读取query和database的GPS数据
+    query_gps_data = read_gps_file(query_gps_path)
+    database_gps_data = []
+    
+    triplet_samples = []
+
+    # 遍历query_gps中的每个点，查找对应的三元组
+    for anchor_idx, anchor in enumerate(tqdm(query_gps_data, desc="Finding triplet samples")):
+        anchor_lat, anchor_lon, anchor_time = anchor
+        positive_sample_time = anchor_time
+        negative_sample_times = [anchor_time for j in range(0, 10)]
+        triplet_samples.append((anchor_time, positive_sample_time, negative_sample_times))
+
+    if os.path.exists(save_path):
+        # 以追加模式打开文件，避免覆盖现有内容
+        with open(save_path, 'a') as file:
+            for triplet in triplet_samples:
+                # 将 triplet 格式化为字符串，每个元素用逗号分隔
+                line = f"{triplet[0]}, {triplet[1]}, {', '.join(map(str, triplet[2]))}\n"
+                file.write(line)
+    else:
+        # 如果文件不存在，创建文件并写入内容
+        with open(save_path, 'w') as file:
+            for triplet in triplet_samples:
+                line = f"{triplet[0]}, {triplet[1]}, {', '.join(map(str, triplet[2]))}\n"
+                file.write(line)
+
+        return triplet_samples
+
+    
     
