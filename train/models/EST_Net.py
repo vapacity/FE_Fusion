@@ -81,13 +81,9 @@ class EST_Net(nn.Module):
     def __init__(self, 
                  voxel_dim = [9, 260, 346],  # C=9, H=260, W=346, 
                  mlp_layers=[1, 30, 30, 1],
-                 activation=nn.LeakyReLU(negative_slope=0.1),
-                 use_adapter=False):
+                 activation=nn.LeakyReLU(negative_slope=0.1)):
         super(EST_Net, self).__init__()
         # MLP部分
-        self.use_adapter = use_adapter
-        if use_adapter:
-            self.adapter_conv = nn.Conv2d(in_channels=18, out_channels=2, kernel_size=1, bias=False) # 测试用
         self.value_layer = ValueLayer(mlp_layers,
                                       activation=activation,
                                       num_channels=voxel_dim[0])
@@ -127,8 +123,6 @@ class EST_Net(nn.Module):
         vox = torch.cat([vox[:, 0, ...], vox[:, 1, ...]], 1)
         # 最终变成 B 2C H W
 
-        if self.use_adapter:
-            vox = self.adapter_conv(vox)
         vox = torch.nn.functional.interpolate(vox, size=(256, 256), mode='bilinear', align_corners=False)
 
         return vox

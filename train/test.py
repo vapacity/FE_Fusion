@@ -144,12 +144,12 @@ if __name__ == '__main__':
     if args.use_dift:
         model = DiftNet(channel_sizes).cuda()
     else:
-        model = Net(args.use_event, args.use_frame, args.event_vpr, channel_sizes=channel_sizes, use_adapter=True).cuda()
+        model = Net(args.use_event, args.use_frame, args.event_vpr, channel_sizes=channel_sizes).cuda()
 
     model_dir = args.model_dir
     output_file = model_dir.replace("saved_model", "test_recall_results.txt")
     with open(output_file, 'a') as f:
-        for epoch in range(11, 82, 10):
+        for epoch in range(30, 99, 1):
             model_path = os.path.join(model_dir, f'model_{"eventVPR" if args.event_vpr else "FEFusion"}_epoch_{epoch}.pth')
             if not os.path.exists(model_path):
                 print(f"模型 {model_path} 不存在，跳过")

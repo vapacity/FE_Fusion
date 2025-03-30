@@ -127,19 +127,14 @@ if __name__ == "__main__":
         database_loader = DataLoader(databaseDataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=16, collate_fn=collate_database_vpr)
 
 
-    start_epoch = 1  # 默认从第 1 个 epoch 开始
+    num_epochs = 200  # 设定训练的 epoch 数量
+
     # model_path = os.path.join(save_dir, "model_epoch_0.pth")  # 例如加载到第 50 个 epoch 的模型
     channel_sizes = [128, 256, 512]
     if args.use_dift:
         model = DiftNet(channel_sizes).cuda()
     else:
-        model = Net(args.use_event, args.use_frame, args.event_vpr, channel_sizes=channel_sizes, use_adapter=True).cuda()
-
-    # 如果存在模型文件，加载模型权重，并设置起始 epoch
-    # if os.path.exists(model_path):
-    #     print(f"加载模型权重: {model_path}")
-    #     model.load_state_dict(torch.load(model_path))
-    #     start_epoch = int(model_path.split('_')[-1].split('.')[0])  # 从模型文件名中提取 epoch 数
+        model = Net(args.use_event, args.use_frame, args.event_vpr, channel_sizes=channel_sizes).cuda()
 
     # 初始化优化器和损失函数
     optimizer = optim.Adam(model.parameters(), lr=0.001)  # 这里调了一下
@@ -151,7 +146,6 @@ if __name__ == "__main__":
 
 
     # 训练循环
-    num_epochs = 100  # 设定训练的 epoch 数量
     if args.use_dift:
         for epoch in range(num_epochs):
             # 更新数据库特征 (可以选择在每个 epoch 开始或结束时更新)

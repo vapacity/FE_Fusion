@@ -6,9 +6,9 @@ import torch.nn as nn
 
 
 class MainNet(nn.Module):
-    def __init__(self, channel_sizes,use_frame=True,use_event=True):
+    def __init__(self, channel_sizes, use_frame=True, use_event=True, event_vpr=False):
         super(MainNet, self).__init__()
-        self.tsfe_net = TSFE_Net.TSFE_Net(use_event=use_event,use_frame=use_frame)  # 假设 TSFE_Net 在 TSFE_Net 模块中定义
+        self.tsfe_net = TSFE_Net.TSFE_Net(use_event=use_event, use_frame=use_frame, event_vpr=event_vpr)  # 假设 TSFE_Net 在 TSFE_Net 模块中定义
         self.mf_main_net = MF_Net.MF_MainNet(channel_sizes)  # 假设 MF_MainNet 在 MF_Net 模块中定义
         self.mf_sub_net1 = MF_Net.MF_SubNet1(channel_sizes)  # 假设 MF_SubNet1 在 MF_Net 模块中定义
         self.mf_sub_net2 = MF_Net.MF_SubNet2(channel_sizes)  # 假设 MF_SubNet2 在 MF_Net 模块中定义

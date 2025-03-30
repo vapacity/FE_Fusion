@@ -92,14 +92,17 @@ class ResBlock(nn.Module):
         return F.relu(out)
 
 class TSFE_Net(nn.Module):
-    def __init__(self, mid_channels=64, use_frame=True, use_event=True):
+    def __init__(self, mid_channels=64, use_frame=True, use_event=True, event_vpr=False):
         super(TSFE_Net, self).__init__()
         self.use_frame = use_frame  # 标志，指示是否使用 frame 数据
         self.use_event = use_event  # 标志，指示是否使用 event 数据
+        self.event_vpr = event_vpr
 
         # 定义 frame 和 event 的处理流
         self.conv1_frame = BasicConv(1, mid_channels, kernel_size=7, stride=2, padding=3)
         self.conv1_event = BasicConv(2, mid_channels, kernel_size=7, stride=2, padding=3)
+        self.conv1_vpr = BasicConv(18, mid_channels, kernel_size=7, stride=2, padding=3)
+
         self.attn1 = CBAM(mid_channels)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.resblocks = nn.Sequential(ResBlock(mid_channels), ResBlock(mid_channels), ResBlock(mid_channels))
@@ -109,7 +112,10 @@ class TSFE_Net(nn.Module):
 
     def forward_stream(self, x, is_event=False):
         if is_event:
-            x = self.conv1_event(x)
+            if self.event_vpr:
+                x = self.conv1_vpr(x)
+            else:
+                x = self.conv1_event(x)
         else:
             x = self.conv1_frame(x)
         x = self.attn1(x)
