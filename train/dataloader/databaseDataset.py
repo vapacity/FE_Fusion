@@ -9,15 +9,22 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from dataUtils import get_data_from_path
 
 def normalize_event_volume(tensor):
-    current_max = tensor.max()
-    
-    # 将张量归一化到最大值为 255 的范围
-    if current_max > 0:  # 避免除以零
-        # 计算缩放因子
-        scale_factor = 255.0 / current_max
-        # 缩放张量并转换为整型
-        tensor = (tensor * scale_factor).floor()
-    
+    """
+    对每个通道分别归一化，使每个通道最大值为255
+    输入:
+        tensor: torch.Tensor, shape [C, H, W]
+    返回:
+        tensor: 归一化后的tensor, dtype仍为 float32
+    """
+    for c in range(tensor.shape[0]):
+        channel = tensor[c]
+        current_max = channel.max()
+        if current_max > 0:
+            scale_factor = 255.0 / current_max
+            tensor[c] = (channel * scale_factor).floor()
+        else:
+            tensor[c] = torch.zeros_like(channel)  # 防止除以0后是NaN
+
     return tensor
 
 class DatabaseDataset(Dataset):

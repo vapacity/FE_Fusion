@@ -23,7 +23,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train FE-Net with different configurations.")
     parser.add_argument('--use_frame', action='store_true', help="Use only frames (default: False)")
     parser.add_argument('--use_event', action='store_true', help="Use only events (default: False)")
-    parser.add_argument('--both', action='store_true', help="Use both frames and events (default: True)")
     parser.add_argument('--event_vpr', action='store_true', help="Reproduce Event VPR")
     parser.add_argument('--use_dift', action='store_true', help="Use DIFT")
 
@@ -112,8 +111,6 @@ if __name__ == "__main__":
         }
     }
     # 获取路径
-
-
     query_dir,database_dirs,triplet_file = generate_paths('experiment_1')
     current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     save_dir = save_path + f"result_{current_time}/saved_model"
@@ -145,7 +142,7 @@ if __name__ == "__main__":
     #     start_epoch = int(model_path.split('_')[-1].split('.')[0])  # 从模型文件名中提取 epoch 数
 
     # 初始化优化器和损失函数
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)  # 这里调了一下
+    optimizer = optim.Adam(model.parameters(), lr=0.001)  # 这里调了一下
     criterion = MultiNegativeTripletLoss(margin=0.1).cuda()  # 使用自定义的多负样本三元组损失函数
 
 
@@ -224,7 +221,6 @@ if __name__ == "__main__":
                     pbar.update(1)
 
 
-            
             # 打印当前 epoch 的平均损失
             average_loss = epoch_loss / len(dataloader) * 10
             print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {average_loss}')

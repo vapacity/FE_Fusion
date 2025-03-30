@@ -45,18 +45,19 @@ output_file_path = '/root/autodl-tmp/processed_data/'
 #         print(f"Timestamp for {key} already generated. Skipping...")
 
 
-# # 对每个数据集的event进行预处理（基于时间戳生成事件数据）
-# print("processing events")
-# for key, name in dataset.items():
-#     bag_file = f"{input_file_path}{name}.bag"
-#     timestamp_file = f"{output_file_path}{key}/timestamp.txt"
-#     volume_output_dir = f"{output_file_path}{key}/event/"
-#     bin_output_dir = f"{output_file_path}{key}/bin/"
-#     if not os.path.exists(volume_output_dir):  # 检查事件数据目录是否存在
-#         os.makedirs(volume_output_dir, exist_ok=True)
-#         process_event_to_volume_and_bin(bag_file, timestamp_file, volume_output_dir, bin_output_dir)
-#     else:
-#         print(f"Event processing for {key} already done. Skipping...")
+# 对每个数据集的event进行预处理（基于时间戳生成事件数据）
+print("processing events")
+for key, name in dataset.items():
+    bag_file = f"{input_file_path}{name}.bag"
+    timestamp_file = f"{output_file_path}{key}/timestamp.txt"
+    volume_output_dir = f"{output_file_path}{key}/event/"
+    bin_output_dir = f"{output_file_path}{key}/bin/"
+    process_event_to_volume_and_bin(bag_file, timestamp_file, volume_output_dir, bin_output_dir)    # TODO: 暂时放这里
+    if not os.path.exists(volume_output_dir):  # 检查事件数据目录是否存在
+        os.makedirs(volume_output_dir, exist_ok=True)
+        process_event_to_volume_and_bin(bag_file, timestamp_file, volume_output_dir, bin_output_dir)
+    else:
+        print(f"Event processing for {key} already done. Skipping...")
 
 # print("filtering events and frames")
 # for key, name in dataset.items():   # ss1, ss2
@@ -69,60 +70,60 @@ output_file_path = '/root/autodl-tmp/processed_data/'
 #     output_file = f"{output_file_path}{key}/timestamp.txt"
 #     get_index(frame_path, output_file)
         
-# GPS信息的处理
-print("processing gps")
-process_all_gps()
+# # GPS信息的处理
+# print("processing gps")
+# process_all_gps()
 
-# 基于时间戳对GPS数据进行插值
-print("interpolating gps")
-for key, name in dataset.items():
-    timestamp_file = f"{output_file_path}{key}/timestamp.txt"
-    gps_file = f"{output_file_path}{key}/gps.txt"
-    interpolated_gps_file = f"{output_file_path}{key}/interpolated_gps.txt"
-    if not os.path.exists(interpolated_gps_file):  # 检查插值文件是否已存在
-        interpolate_gps_data(timestamp_file, gps_file, interpolated_gps_file)
-    else:
-        print(f"Interpolated GPS for {key} already exists. Skipping...")
+# # 基于时间戳对GPS数据进行插值
+# print("interpolating gps")
+# for key, name in dataset.items():
+#     timestamp_file = f"{output_file_path}{key}/timestamp.txt"
+#     gps_file = f"{output_file_path}{key}/gps.txt"
+#     interpolated_gps_file = f"{output_file_path}{key}/interpolated_gps.txt"
+#     if not os.path.exists(interpolated_gps_file):  # 检查插值文件是否已存在
+#         interpolate_gps_data(timestamp_file, gps_file, interpolated_gps_file)
+#     else:
+#         print(f"Interpolated GPS for {key} already exists. Skipping...")
 
-# 查找三元组用于训练
-query_gps_paths = [f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment1 train
-                   f"{output_file_path}{'mn'}/interpolated_gps.txt", # experiment2 train
-                   f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment3 train
-                   f"{output_file_path}{'sr'}/interpolated_gps.txt"  # experiment4 train
-                  ]
+# # 查找三元组用于训练
+# query_gps_paths = [f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment1 train
+#                    f"{output_file_path}{'mn'}/interpolated_gps.txt", # experiment2 train
+#                    f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment3 train
+#                    f"{output_file_path}{'sr'}/interpolated_gps.txt"  # experiment4 train
+#                   ]
 
-test_query_gps_paths = [f"{output_file_path}{'ss2'}/interpolated_gps.txt", # experiment1 test
-                        f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment2 test
-                        f"{output_file_path}{'mn'}/interpolated_gps.txt", # experiment3 test
-                        f"{output_file_path}{'dt'}/interpolated_gps.txt"  # experiment4 test
-                        ]
+# test_query_gps_paths = [f"{output_file_path}{'ss2'}/interpolated_gps.txt", # experiment1 test
+#                         f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment2 test
+#                         f"{output_file_path}{'mn'}/interpolated_gps.txt", # experiment3 test
+#                         f"{output_file_path}{'dt'}/interpolated_gps.txt"  # experiment4 test
+#                         ]
 
-database_gps_paths = [
-    [f"{output_file_path}{'dt'}/interpolated_gps.txt", f"{output_file_path}{'mn'}/interpolated_gps.txt"],  # experiment1 train
-    [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'dt'}/interpolated_gps.txt"],  # experiment2 train
-    [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'dt'}/interpolated_gps.txt"],  # experiment3 train
-    [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'mn'}/interpolated_gps.txt"]   # experiment4 train
-]
+# database_gps_paths = [
+#     [f"{output_file_path}{'dt'}/interpolated_gps.txt", f"{output_file_path}{'mn'}/interpolated_gps.txt"],  # experiment1 train
+#     [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'dt'}/interpolated_gps.txt"],  # experiment2 train
+#     [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'dt'}/interpolated_gps.txt"],  # experiment3 train
+#     [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'mn'}/interpolated_gps.txt"]   # experiment4 train
+# ]
 
-# 根据正负样本的条件查找三元组,挑选最远的正样本和最近的负样本
-for idx, (query_gps_path, test_query_gps_path, db_paths) in enumerate(zip(query_gps_paths, test_query_gps_paths, database_gps_paths), start=1):
-    # 根据索引动态生成实验保存路径
-    save_dir = f"{output_file_path}triplets/experiment_{idx}/"  # 保存的目录路径
-    save_file = f"{save_dir}triplet_result.txt"  # 保存的文件路径
-    save_test_file = f"{save_dir}triplet_result_test.txt"  # 保存的文件路径
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir, exist_ok=True)  # 如果不存在则创建
+# # 根据正负样本的条件查找三元组,挑选最远的正样本和最近的负样本
+# for idx, (query_gps_path, test_query_gps_path, db_paths) in enumerate(zip(query_gps_paths, test_query_gps_paths, database_gps_paths), start=1):
+#     # 根据索引动态生成实验保存路径
+#     save_dir = f"{output_file_path}triplets/experiment_{idx}/"  # 保存的目录路径
+#     save_file = f"{save_dir}triplet_result.txt"  # 保存的文件路径
+#     save_test_file = f"{save_dir}triplet_result_test.txt"  # 保存的文件路径
+#     if not os.path.exists(save_dir):
+#         os.makedirs(save_dir, exist_ok=True)  # 如果不存在则创建
         
-    # 检查文件是否已经存在，如果不存在则进行处理
-    if not os.path.exists(save_file):  # 检查文件是否已经存在
-        # 调用 find_triplet_samples 函数，传入查询GPS路径和数据库路径，保存三元组
-        find_triplet_samples(query_gps_path, db_paths, save_file)
-    else:
-        print(f"Triplet processing for experiment {idx} already done. Skipping...")
+#     # 检查文件是否已经存在，如果不存在则进行处理
+#     if not os.path.exists(save_file):  # 检查文件是否已经存在
+#         # 调用 find_triplet_samples 函数，传入查询GPS路径和数据库路径，保存三元组
+#         find_triplet_samples(query_gps_path, db_paths, save_file)
+#     else:
+#         print(f"Triplet processing for experiment {idx} already done. Skipping...")
 
-    # dummy triplets
-    # if not os.path.exists(save_test_file):  # 检查文件是否已经存在
-    #     # 调用 find_triplet_samples 函数，传入查询GPS路径和数据库路径，保存三元组
-    #     find_triplet_samples_dummy(test_query_gps_path, save_test_file)
-    # else:
-    #     print(f"Triplet processing for experiment {idx} test already done. Skipping...")
+#     # dummy triplets
+#     # if not os.path.exists(save_test_file):  # 检查文件是否已经存在
+#     #     # 调用 find_triplet_samples 函数，传入查询GPS路径和数据库路径，保存三元组
+#     #     find_triplet_samples_dummy(test_query_gps_path, save_test_file)
+#     # else:
+#     #     print(f"Triplet processing for experiment {idx} test already done. Skipping...")

@@ -8,16 +8,24 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from dataUtils import get_data_from_path
 
-def normalize_event_volume(event_volume):
-    # max_value = np.max(event_volume)
+def normalize_event_volume(tensor):
+    """
+    对每个通道分别归一化，使每个通道最大值为255
+    输入:
+        tensor: torch.Tensor, shape [C, H, W]
+    返回:
+        tensor: 归一化后的tensor, dtype仍为 float32
+    """
+    for c in range(tensor.shape[0]):
+        channel = tensor[c]
+        current_max = channel.max()
+        if current_max > 0:
+            scale_factor = 255.0 / current_max
+            tensor[c] = (channel * scale_factor).floor()
+        else:
+            tensor[c] = torch.zeros_like(channel)  # 防止除以0后是NaN
 
-    # if max_value == 0:
-    #     return event_volume
-    
-    # # 归一化处理
-    # normalized_volume = event_volume / max_value
-    # return normalized_volume
-    return event_volume
+    return tensor
 
 class QueryDataset(Dataset):
     def __init__(self, txt_file, query_dir, database_dirs, transform=None, event_vpr=False, use_dift=False):
@@ -105,8 +113,8 @@ class QueryDataset(Dataset):
         """
         event_path = os.path.join(dir, "event", f"{timestamp}.npy")
         event_volume = np.load(event_path)
-        event_volume = normalize_event_volume(event_volume)
         event_volume = torch.tensor(event_volume).float()
+        event_volume = normalize_event_volume(event_volume)
         event_volume = torch.nn.functional.interpolate(event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
         return event_volume
     
@@ -165,8 +173,8 @@ class QueryDataset(Dataset):
 
         if not self.event_vpr:
             pos_event_volume = np.load(pos_event_path)
-            pos_event_volume = normalize_event_volume(pos_event_volume)
             pos_event_volume = torch.tensor(pos_event_volume).float()
+            pos_event_volume = normalize_event_volume(pos_event_volume)
             pos_event_volume = torch.nn.functional.interpolate(pos_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
         else:
             data = get_data_from_path(pos_event_path)
@@ -202,8 +210,8 @@ class QueryDataset(Dataset):
     
             if not self.event_vpr:
                 neg_event_volume = np.load(neg_event_path)
-                neg_event_volume = normalize_event_volume(neg_event_volume)
                 neg_event_volume = torch.tensor(neg_event_volume).float()
+                neg_event_volume = normalize_event_volume(neg_event_volume)
                 neg_event_volume = torch.nn.functional.interpolate(neg_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
                 neg_event_volumes.append(neg_event_volume)
                 #print("in load Data neg event:",neg_event_volume.size())
