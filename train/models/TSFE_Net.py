@@ -3,6 +3,8 @@ import numpy as np
 from PIL import Image
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models import resnet34
+
 """
 TSFE-Net
 Input: Frame and Event Volumes (from Brisbane dataset 25ms timestamp;25ms time interval window)
@@ -78,25 +80,13 @@ class CBAM(nn.Module):
         result = out * self.sa(out)
         return result
 
-class ResBlock(nn.Module):
-    def __init__(self, in_channels):
-        super(ResBlock, self).__init__()
-        self.conv1 = BasicConv(in_channels, in_channels, kernel_size=3, padding=1)
-        self.conv2 = BasicConv(in_channels, in_channels, kernel_size=3, padding=1, relu=False)
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.conv2(out)
-        out += identity
-        return F.relu(out)
-
 class TSFE_Net(nn.Module):
     def __init__(self, mid_channels=64, use_frame=True, use_event=True, event_vpr=False):
         super(TSFE_Net, self).__init__()
         self.use_frame = use_frame  # 标志，指示是否使用 frame 数据
         self.use_event = use_event  # 标志，指示是否使用 event 数据
         self.event_vpr = event_vpr
+        resnet = resnet34(pretrained=True)
 
         # 定义 frame 和 event 的处理流
         self.conv1_frame = BasicConv(1, mid_channels, kernel_size=7, stride=2, padding=3)
@@ -105,7 +95,7 @@ class TSFE_Net(nn.Module):
 
         self.attn1 = CBAM(mid_channels)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.resblocks = nn.Sequential(ResBlock(mid_channels), ResBlock(mid_channels), ResBlock(mid_channels))
+        self.conv2 = resnet.layer1
         self.attn2 = CBAM(mid_channels)
         self.bn = nn.BatchNorm2d(mid_channels)
         self.relu = nn.ReLU(inplace=True)
@@ -120,7 +110,7 @@ class TSFE_Net(nn.Module):
             x = self.conv1_frame(x)
         x = self.attn1(x)
         x = self.maxpool(x)
-        x = self.resblocks(x)
+        x = self.conv2(x)
         x = self.attn2(x)
         x = self.bn(x)
         x = self.relu(x)

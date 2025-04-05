@@ -8,43 +8,25 @@ import h5py
 import torch
 import torchvision.transforms as transforms
 
-def normalize_event_volume(tensor):
-    """
-    对每个通道分别归一化，使每个通道最大值为255
-    输入:
-        tensor: torch.Tensor, shape [C, H, W]
-    返回:
-        tensor: 归一化后的tensor, dtype仍为 float32
-    """
-    for c in range(tensor.shape[0]):
-        channel = tensor[c]
-        current_max = channel.max()
-        if current_max > 0:
-            scale_factor = 255.0 / current_max
-            tensor[c] = (channel * scale_factor).floor()
-        else:
-            tensor[c] = torch.zeros_like(channel)  # 防止除以0后是NaN
-
-    return tensor
 
 
-def save_volume_to_image(tensor, save_path):
-    """
-    将 C×H×W 格式的张量转换为图片并保存
+# def save_volume_to_image(tensor, save_path):
+#     """
+#     将 C×H×W 格式的张量转换为图片并保存
     
-    参数:
-        tensor: 形状为 [C, H, W] 的张量，通常 C=3 表示 RGB 图像
-        save_path: 保存图片的路径
-    """
-    # 找出当前张量的最大值
-    tensor = normalize_event_volume(tensor)
-    # 如果张量的值范围不在 [0,1] 或 [0,255]，可能需要进行归一化
-     # 使用 torchvision 的 ToPILImage 转换
-    to_pil = transforms.ToPILImage()
-    img = to_pil(tensor)
-    # 保存图片
-    img.save(save_path)
-    # print(f"图片已保存至 {save_path}")
+#     参数:
+#         tensor: 形状为 [C, H, W] 的张量，通常 C=3 表示 RGB 图像
+#         save_path: 保存图片的路径
+#     """
+#     # 找出当前张量的最大值
+#     tensor = normalize_event_volume(tensor)
+#     # 如果张量的值范围不在 [0,1] 或 [0,255]，可能需要进行归一化
+#      # 使用 torchvision 的 ToPILImage 转换
+#     to_pil = transforms.ToPILImage()
+#     img = to_pil(tensor)
+#     # 保存图片
+#     img.save(save_path)
+#     # print(f"图片已保存至 {save_path}")
 
 def process_event_to_volume_and_bin(bag_file, timestamps_file, volume_output_dir, bin_output_dir, time_tolerance=0.0125):
     print("here")
@@ -101,7 +83,7 @@ def process_event_to_volume_and_bin(bag_file, timestamps_file, volume_output_dir
             event_volume_RGB = torch.cat((torch.from_numpy(event_volume), torch.zeros((1, 260, 346))), dim=0)
             # TODO: 暂时修改，后续改回来
             if f"{timestamp_str}.npy" in os.listdir(volume_output_dir):
-                save_volume_to_image(event_volume_RGB, os.path.join(volume_output_dir, f"{timestamp_str}.jpg"))
+                # save_volume_to_image(event_volume_RGB, os.path.join(volume_output_dir, f"{timestamp_str}.jpg"))
             # 将收集的事件保存为 .npy 文件，文件名使用时间戳
             output_file = os.path.join(volume_output_dir, f"{timestamp_str}.npy")
             # np.save(output_file, event_volume)    # TODO: 暂时修改，后续改回来

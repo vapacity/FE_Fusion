@@ -210,27 +210,28 @@ channel_sizes = [128,256,512]
 class MF_MainNet(nn.Module):
     def __init__(self, channel_sizes):
         super(MF_MainNet, self).__init__()
+        resnet = resnet34(pretrained=True)
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.attn1 = CBAM.CBAM(channel_sizes[0])
         self.VLAD = NetVLAD(dim=channel_sizes[1])
         # Assuming each conv_x module doubles the number of channels and halves the feature map size
-        self.conv4_x = self._make_layer(channel_sizes[0], channel_sizes[1], blocks=6, stride=2)
+        self.conv4_x = resnet.layer3
         self.attn2 = CBAM.CBAM(channel_sizes[1])
-        self.conv5_x = self._make_layer(channel_sizes[1], channel_sizes[2], blocks=3, stride=2)
+        self.conv5_x = resnet.layer4
         self.conv1x1 = nn.Conv2d(channel_sizes[2],256,kernel_size=1)
 
-    def _make_layer(self, in_channels, out_channels, blocks, stride):
-        downsample = None
-        if stride != 1 or in_channels != out_channels:
-            downsample = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_channels)
-            )
-        layers = []
-        layers.append(ResidualBlock(in_channels, out_channels, stride, downsample))
-        for _ in range(1, blocks):
-            layers.append(ResidualBlock(out_channels, out_channels))
-        return nn.Sequential(*layers)
+    # def _make_layer(self, in_channels, out_channels, blocks, stride):
+    #     downsample = None
+    #     if stride != 1 or in_channels != out_channels:
+    #         downsample = nn.Sequential(
+    #             nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+    #             nn.BatchNorm2d(out_channels)
+    #         )
+    #     layers = []
+    #     layers.append(ResidualBlock(in_channels, out_channels, stride, downsample))
+    #     for _ in range(1, blocks):
+    #         layers.append(ResidualBlock(out_channels, out_channels))
+    #     return nn.Sequential(*layers)
 
     def forward(self, x):
         x = self.maxpool(x)

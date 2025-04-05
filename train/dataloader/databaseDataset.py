@@ -6,26 +6,7 @@ import numpy as np
 import torchvision.transforms as transforms
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
-from dataUtils import get_data_from_path
-
-def normalize_event_volume(tensor):
-    """
-    对每个通道分别归一化，使每个通道最大值为255
-    输入:
-        tensor: torch.Tensor, shape [C, H, W]
-    返回:
-        tensor: 归一化后的tensor, dtype仍为 float32
-    """
-    for c in range(tensor.shape[0]):
-        channel = tensor[c]
-        current_max = channel.max()
-        if current_max > 0:
-            scale_factor = 255.0 / current_max
-            tensor[c] = (channel * scale_factor).floor()
-        else:
-            tensor[c] = torch.zeros_like(channel)  # 防止除以0后是NaN
-
-    return tensor
+from dataUtils import get_data_from_path, normalize_event_volume
 
 class DatabaseDataset(Dataset):
     def __init__(self, database_dirs, transform=None, event_vpr=False, use_dift=False, use_timestamps_from_gps=False):
