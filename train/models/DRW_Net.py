@@ -64,19 +64,4 @@ class DRW_Net(nn.Module):
         D_final = D1_weighted + D2_weighted + D3_weighted
         
         return D_final
-'''
-M1 = torch.zeros(16,16384)
-M2 = torch.zeros(16,16384)
-M3 = torch.zeros(16,16384)
-input_size = M2.shape[1]
-model = DRW_Net(input_size)
 
-output = model(M1,M2,M3)
-#print(output.shape)  # Should print torch.Size([1, 16384])
-'''
-
-# Triplet loss
-triplet_loss = nn.TripletMarginLoss(margin = 0.1,p=2,eps=1e-7)
-anchor = torch.randn(100,128,requires_grad = True)
-positive = torch.randn(100, 128, requires_grad=True)
-negative = torch.randn(100, 128, requires_grad=True)

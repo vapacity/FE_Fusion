@@ -92,61 +92,6 @@ class NetVLAD(nn.Module):
                 - self.alpha * self.centroids.norm(dim=1)
             )
 
-    # def forward(self, x):
-    #     # x: [N, C, H, W]  --> N=batch size, C=channels (descriptor dim), H×W=spatial locations
-    #     N, C = x.shape[:2]
-
-    #     if self.normalize_input:
-    #         x = F.normalize(x, p=2, dim=1)  # L2 normalize across descriptor dim
-    #         # x: [N, C, H, W] (unchanged shape)
-
-    #     # Step 1: Soft-assignment
-    #     soft_assign = self.conv(x).view(N, self.num_clusters, -1)
-    #     # self.conv(x): [N, K, H, W]
-    #     # soft_assign: [N, K, H*W] (flattened spatial dim)
-
-    #     soft_assign = F.softmax(soft_assign, dim=1)
-    #     # soft_assign: [N, K, H*W] (softmax across clusters)
-
-    #     # Step 2: Flatten input features
-    #     x_flatten = x.view(N, C, -1)
-    #     # x_flatten: [N, C, H*W]  (flatten spatial dim)
-
-    #     # Step 3: Initialize VLAD container
-    #     vlad = torch.zeros([N, self.num_clusters, C], dtype=x.dtype, layout=x.layout, device=x.device)
-    #     # vlad: [N, K, C]  to hold aggregated residuals per cluster
-
-    #     # Step 4: Residuals per cluster (loop version)
-    #     for C in range(self.num_clusters):  # C here is index over clusters, not channels
-    #         # Compute residuals between features and centroid C
-    #         # x_flatten: [N, C_feat, H*W] → [1, N, C, H*W] → [N, 1, C, H*W]
-    #         residual = x_flatten.unsqueeze(0).permute(1, 0, 2, 3) \
-    #                 - self.centroids[C:C+1, :].expand(x_flatten.size(-1), -1, -1) \
-    #                     .permute(1, 2, 0).unsqueeze(0)
-    #         # residual: [N, 1, C, H*W] - [1, 1, C, H*W] → [N, 1, C, H*W]
-
-    #         # Multiply soft-assignment weights
-    #         # soft_assign[:, C:C+1, :] → [N, 1, H*W] → unsqueeze(2): [N, 1, 1, H*W]
-    #         residual *= soft_assign[:, C:C+1, :].unsqueeze(2)
-    #         # residual: [N, 1, C, H*W] (weighted residual)
-
-    #         # Sum across spatial dimension (H*W)
-    #         vlad[:, C:C+1, :] = residual.sum(dim=-1)
-    #         # vlad[:, C:C+1, :]: [N, 1, C]  ← residual sum
-
-    #     # Step 5: Intra-normalization (across descriptor dim)
-    #     vlad = F.normalize(vlad, p=2, dim=2)
-    #     # vlad: [N, K, C] → each cluster feature vector is L2 normalized
-
-    #     # Step 6: Flatten
-    #     vlad = vlad.view(x.size(0), -1)
-    #     # vlad: [N, K*C]  → flattened NetVLAD vector
-
-    #     # Step 7: Final L2 normalization (across whole vector)
-    #     vlad = F.normalize(vlad, p=2, dim=1)
-    #     # vlad: [N, K*C] → L2 normalized output vector
-
-    #     return vlad
 
 
     def forward(self, x):
@@ -181,36 +126,12 @@ class NetVLAD(nn.Module):
         return vlad
 
 
-#     def forward_v2x(self, x):
-#         N, C = x.shape[:2]
-
-#         if self.normalize_input:
-#             x = F.normalize(x, p=2, dim=1)  # across descriptor dim
-
-#         # soft-assignment
-#         soft_assign = self.conv(x).view(N, self.num_clusters, -1)
-#         soft_assign = F.softmax(soft_assign, dim=1)
-
-#         x_flatten = x.view(N, C, -1)
-        
-#         # calculate residuals to each clusters
-#         residual = x_flatten.expand(self.num_clusters, -1, -1, -1).permute(1, 0, 2, 3) - \
-#             self.centroids.expand(x_flatten.size(-1), -1, -1).permute(1, 2, 0).unsqueeze(0)
-#         residual *= soft_assign.unsqueeze(2)
-#         vlad = residual.sum(dim=-1)
-
-#         vlad = F.normalize(vlad, p=2, dim=2)  # intra-normalization
-#         vlad = vlad.view(x.size(0), -1)  # flatten
-#         vlad = F.normalize(vlad, p=2, dim=1)  # L2 normalize
-
-#         return vlad
-
 # core steps
 channel_sizes = [128,256,512]
 class MF_MainNet(nn.Module):
     def __init__(self, channel_sizes):
         super(MF_MainNet, self).__init__()
-        resnet = resnet34(pretrained=True)
+        resnet = resnet34(pretrained=False)
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
         self.attn1 = CBAM.CBAM(channel_sizes[0])
         self.VLAD = NetVLAD(dim=channel_sizes[1])
@@ -314,31 +235,3 @@ class MF_SubNet2(nn.Module):
         #print("M2:",processed_features.shape)
         M2=self.VLAD(processed_features)
         return M2
-'''
-# test for Multi-Scale Fusion Network
-height = 64
-width = 64
-batch_size=1
-
-frame = torch.rand(batch_size, 1,height,width)
-
-frame = frame.repeat(1,128,1,1)
-
-model_mainNet = MF_MainNet(channel_sizes)
-model_subNet1 = MF_SubNet1(channel_sizes)
-model_subNet2 = MF_SubNet2(channel_sizes)
-
-# 检查是否有可用的 GPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model_mainNet.to(device)
-model_subNet1.to(device)
-model_subNet2.to(device)
-frame = frame.to(device)
-
-# 将数据输入网络进行前向传播
-S1,S2,S3,M1 = model_mainNet(frame)
-print("Output shape:\nS1:", S1.shape," S2:",S2.shape," S3:",S3.shape)
-M3,processed_S2 =model_subNet1(S1,S2)
-M2 = model_subNet2(processed_S2,S3)
-print("M1: ",M1.shape,"M2: ",M2.shape," M3:",M3.shape)
-'''

@@ -82,13 +82,13 @@ def process_event_to_volume_and_bin(bag_file, timestamps_file, volume_output_dir
             # 把event_volume 可视化为rgb灰度图
             event_volume_RGB = torch.cat((torch.from_numpy(event_volume), torch.zeros((1, 260, 346))), dim=0)
             # TODO: 暂时修改，后续改回来
-            if f"{timestamp_str}.npy" in os.listdir(volume_output_dir):
-                # save_volume_to_image(event_volume_RGB, os.path.join(volume_output_dir, f"{timestamp_str}.jpg"))
+            # if f"{timestamp_str}.npy" in os.listdir(volume_output_dir):
+            #     save_volume_to_image(event_volume_RGB, os.path.join(volume_output_dir, f"{timestamp_str}.jpg"))
             # 将收集的事件保存为 .npy 文件，文件名使用时间戳
             output_file = os.path.join(volume_output_dir, f"{timestamp_str}.npy")
-            # np.save(output_file, event_volume)    # TODO: 暂时修改，后续改回来
+            np.save(output_file, event_volume)
             output_file = os.path.join(bin_output_dir, f"{timestamp_str}.npy")
-            # np.save(output_file, bin_output_list)  # TODO: 暂时修改，后续改回来
+            np.save(output_file, bin_output_list)
 
             # 释放内存
             del events

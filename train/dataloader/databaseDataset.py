@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from dataUtils import get_data_from_path, normalize_event_volume
 
 class DatabaseDataset(Dataset):
-    def __init__(self, database_dirs, transform=None, event_vpr=False, use_dift=False, use_timestamps_from_gps=False):
+    def __init__(self, database_dirs, transform=None, event_vpr=False, use_timestamps_from_gps=False, use_dift=False):
         """
         Args:
             database_dirs (list): 数据库样本的文件夹路径列表。
@@ -18,7 +18,6 @@ class DatabaseDataset(Dataset):
         self.database_dirs = database_dirs
         self.transform = transform
         self.use_event_vpr = event_vpr
-        self.use_dift = use_dift
         self.use_timestamps_from_gps = use_timestamps_from_gps
 
         # 获取所有数据库文件中的时间戳
@@ -26,6 +25,9 @@ class DatabaseDataset(Dataset):
             self.database_timestamps = self._get_database_timestamps_from_GPS()
         else:
             self.database_timestamps = self._get_database_timestamps()
+        
+        if use_dift:
+            raise NotImplementedError("DIFT is not implemented in DatabaseDataset")
     
     def _get_database_timestamps_from_GPS(self):
         timestamps = set()
@@ -118,26 +120,17 @@ class DatabaseDataset(Dataset):
         for dir in self.database_dirs:
             frame_path = os.path.join(dir, "frame", f"{timestamp}.png")
             event_path = os.path.join(dir, "event", f"{timestamp}.npy")
-            dift_feat_0_path = os.path.join(dir, "dift_feat_0", f"{timestamp}.pt")
-            dift_feat_1_path = os.path.join(dir, "dift_feat_1", f"{timestamp}.pt")
-            dift_feat_2_path = os.path.join(dir, "dift_feat_2", f"{timestamp}.pt")
 
-            if self.use_dift:
-                if os.path.exists(dift_feat_0_path) and os.path.exists(dift_feat_1_path) and os.path.exists(dift_feat_2_path):
-                    if self.use_timestamps_from_gps:
-                        return torch.load(dift_feat_0_path), torch.load(dift_feat_1_path), torch.load(dift_feat_2_path), timestamp
-                    else:
-                        return torch.load(dift_feat_0_path), torch.load(dift_feat_1_path), torch.load(dift_feat_2_path)
-            else:
-                if os.path.exists(frame_path) and os.path.exists(event_path):
-                    frame = self._load_frame(dir, timestamp)
-                    if self.use_event_vpr:
-                        event_volume = self._load_event_bin(dir, timestamp)
-                    else:
-                        event_volume = self._load_event_volume(dir, timestamp)
-                    if self.use_timestamps_from_gps:
-                        return frame, event_volume, timestamp
-                    else:
-                        return frame, event_volume
+            
+            if os.path.exists(frame_path) and os.path.exists(event_path):
+                frame = self._load_frame(dir, timestamp)
+                if self.use_event_vpr:
+                    event_volume = self._load_event_bin(dir, timestamp)
+                else:
+                    event_volume = self._load_event_volume(dir, timestamp)
+                if self.use_timestamps_from_gps:
+                    return frame, event_volume, timestamp
+                else:
+                    return frame, event_volume, timestamp
 
         raise FileNotFoundError(f"No data found for timestamp {timestamp}")

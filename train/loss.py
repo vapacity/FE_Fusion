@@ -13,9 +13,10 @@ class MultiNegativeTripletLoss(nn.Module):
         
         # 存储每个负样本的损失
         all_triplet_losses = []
+        length = negatives.size(1)
 
         # 遍历每个负样本
-        for i in range(negatives.size(1)):
+        for i in range(length):
             # 提取第 i 个负样本，形状为 [batch_size, feature_dim]
             negative = negatives[:, i, :]
             
@@ -25,4 +26,4 @@ class MultiNegativeTripletLoss(nn.Module):
         
         # 将所有负样本的损失堆叠并求平均
         all_triplet_losses = torch.stack(all_triplet_losses)  # [num_negatives]
-        return all_triplet_losses.mean()
+        return all_triplet_losses.mean() * length

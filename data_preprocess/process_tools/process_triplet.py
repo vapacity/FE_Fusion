@@ -85,81 +85,43 @@ def find_triplet_samples(query_gps_path, database_gps_paths, save_path,pos_thres
     # 读取所有的database文件路径
     for gps_path in database_gps_paths:
         database_gps_data.extend(read_gps_file(gps_path))
-    
-    triplet_samples = []
 
-    # 遍历query_gps中的每个点，查找对应的三元组
-    for anchor_idx, anchor in enumerate(tqdm(query_gps_data, desc="Finding triplet samples")):
-        anchor_lat, anchor_lon, anchor_time = anchor
-        pos_samples = []
-        neg_samples = []
+    with open(save_path, 'w') as file:
+        # 遍历query_gps中的每个点，查找对应的三元组
+        for anchor_idx, anchor in enumerate(tqdm(query_gps_data, desc="Finding triplet samples")):
+            anchor_lat, anchor_lon, anchor_time = anchor
+            pos_samples = []
+            neg_samples = []
 
-        # 遍历database_gps中的每个点
-        for sample_idx, sample in enumerate(database_gps_data):
-            sample_lat, sample_lon, sample_time = sample
+            # 遍历database_gps中的每个点
+            for sample_idx, sample in enumerate(database_gps_data):
+                sample_lat, sample_lon, sample_time = sample
 
-            # 计算anchor和sample之间的距离
-            distance = geodesic((anchor_lat, anchor_lon), (sample_lat, sample_lon)).meters
+                # 计算anchor和sample之间的距离
+                distance = geodesic((anchor_lat, anchor_lon), (sample_lat, sample_lon)).meters
 
-            # 根据距离筛选正样本和负样本
-            if distance < pos_threshold:
-                pos_samples.append(sample_time)
-            elif distance > neg_threshold:
-                neg_samples.append(sample_time)
+                # 根据距离筛选正样本和负样本
+                if distance < pos_threshold:
+                    pos_samples.append(sample_time)
+                elif distance > neg_threshold:
+                    neg_samples.append(sample_time)
 
-        # 当存在正样本且负样本数目不小于10时，随机选择一个正样本和10个负样本
-        if pos_samples and len(neg_samples) >= 10:
-            positive_sample_time = np.random.choice(pos_samples)
-            negative_sample_times = np.random.choice(neg_samples, 10, replace=False)
-            triplet_samples.append((anchor_time, positive_sample_time, negative_sample_times))
-    
-        # 检查文件是否存在
-    if os.path.exists(save_path):
-        # 以追加模式打开文件，避免覆盖现有内容
-        with open(save_path, 'a') as file:
-            for triplet in triplet_samples:
-                # 将 triplet 格式化为字符串，每个元素用逗号分隔
-                line = f"{triplet[0]}, {triplet[1]}, {', '.join(map(str, triplet[2]))}\n"
-                file.write(line)
-    else:
-        # 如果文件不存在，创建文件并写入内容
-        with open(save_path, 'w') as file:
-            for triplet in triplet_samples:
-                line = f"{triplet[0]}, {triplet[1]}, {', '.join(map(str, triplet[2]))}\n"
-                file.write(line)
 
-        return triplet_samples
-    
-
-def find_triplet_samples_dummy(query_gps_path, save_path):
-    # 读取query和database的GPS数据
-    query_gps_data = read_gps_file(query_gps_path)
-    database_gps_data = []
-    
-    triplet_samples = []
-
-    # 遍历query_gps中的每个点，查找对应的三元组
-    for anchor_idx, anchor in enumerate(tqdm(query_gps_data, desc="Finding triplet samples")):
-        anchor_lat, anchor_lon, anchor_time = anchor
-        positive_sample_time = anchor_time
-        negative_sample_times = [anchor_time for j in range(0, 10)]
-        triplet_samples.append((anchor_time, positive_sample_time, negative_sample_times))
-
-    if os.path.exists(save_path):
-        # 以追加模式打开文件，避免覆盖现有内容
-        with open(save_path, 'a') as file:
-            for triplet in triplet_samples:
-                # 将 triplet 格式化为字符串，每个元素用逗号分隔
-                line = f"{triplet[0]}, {triplet[1]}, {', '.join(map(str, triplet[2]))}\n"
-                file.write(line)
-    else:
-        # 如果文件不存在，创建文件并写入内容
-        with open(save_path, 'w') as file:
-            for triplet in triplet_samples:
-                line = f"{triplet[0]}, {triplet[1]}, {', '.join(map(str, triplet[2]))}\n"
-                file.write(line)
-
-        return triplet_samples
-
-    
+            ############ 随机选择并pad ############ 
+            if len(pos_samples) == 0 or len(neg_samples) == 0:
+                continue
+            # Pad positive samples if needed
+            if len(pos_samples) <= 100:
+                positive_sample_times = list(pos_samples)
+            else:
+                positive_sample_times = np.random.choice(pos_samples, 100, replace=False)
+                
+            # Pad negative samples if needed    
+            if len(neg_samples) <= 1000:
+                negative_sample_times = list(neg_samples)
+            else:
+                negative_sample_times = np.random.choice(neg_samples, 1000, replace=False)
+            
+            line = f"{anchor_time}; {', '.join(map(str, positive_sample_times))}; {', '.join(map(str, negative_sample_times))}\n"            
+            file.write(line)
     

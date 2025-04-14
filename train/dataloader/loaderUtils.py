@@ -150,7 +150,7 @@ def update_test_features(model, database_loader):
             db_features = model(db_frames, db_event_volumes)
 
             # 将特征保存到列表中
-            database_features.append(db_features.cpu())
+            database_features.append(db_features.detach().cpu())
             timestamps_list.extend(timestamp)
 
     # 使用 torch.cat 将不同批次的数据拼接起来，而不是 stack

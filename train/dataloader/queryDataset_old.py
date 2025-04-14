@@ -23,7 +23,7 @@ class QueryDataset(Dataset):
         self.event_vpr = event_vpr
         self.use_dift = use_dift
         
-        # 解析txt文件，获取query, positives, negatives的时间戳
+        # 解析txt文件，获取query, positive, negatives的时间戳
         self.triplets = self._parse_triplets(txt_file)
     
     def _parse_triplets(self, txt_file):
@@ -33,17 +33,12 @@ class QueryDataset(Dataset):
         triplets = []
         with open(txt_file, 'r') as file:
             for line in file:
-                # 按分号分割每一行
-                parts = line.strip().split(';')
-                query = parts[0].strip()
-                positives = [p.strip() for p in parts[1].strip().split(',')]
-                negatives = [n.strip() for n in parts[2].strip().split(',')]
-                # 随机选择10个正样本和100个负样本
-                if len(positives) > 10:
-                    positives = np.random.choice(positives, 10, replace=False)
-                if len(negatives) > 100:
-                    negatives = np.random.choice(negatives, 100, replace=False)
-                triplets.append((query, positives, negatives))
+                # 按空格或逗号分割每一行
+                timestamps = line.strip().split(',')
+                query = timestamps[0].strip()
+                positive = timestamps[1].strip()
+                negatives = [t.strip() for t in timestamps[2:]]
+                triplets.append((query, positive, negatives))
         return triplets
 
     def _find_file_in_database(self, timestamp, file_type):
@@ -68,6 +63,7 @@ class QueryDataset(Dataset):
                 file_path = os.path.join(dir, "dift_feat_1", f"{timestamp}.pt")
             elif file_type == "dift_feat_2":
                 file_path = os.path.join(dir, "dift_feat_2", f"{timestamp}.pt")
+            
             if os.path.exists(file_path):
                 return file_path  # 返回第一个找到的路径
         return None  # 如果没有找到，返回None
@@ -122,7 +118,7 @@ class QueryDataset(Dataset):
         return len(self.triplets)
 
     def __getitem__(self, idx):
-        query_timestamp, pos_timestamps, neg_timestamps = self.triplets[idx]
+        query_timestamp, pos_timestamp, neg_timestamps = self.triplets[idx]
 
         # 加载query样本（query_dir）
         query_frame = self._load_frame(self.query_dir, query_timestamp)
@@ -136,40 +132,42 @@ class QueryDataset(Dataset):
             query_dift_feat_2 = torch.load(os.path.join(self.query_dir, "dift_feat_2", f"{query_timestamp}.pt"))
 
         # 加载正样本，首先在database_dirs中查找正样本
-        pos_frames_dict = {}
-        pos_event_volumes_dict = {}
+        pos_frame_path = self._find_file_in_database(pos_timestamp, "frame")
+        if not self.event_vpr:
+            pos_event_path = self._find_file_in_database(pos_timestamp, "event")
+        else:
+            pos_event_path = self._find_file_in_database(pos_timestamp, "bin")
+        if self.use_dift:
+            pos_dift_feat_0 = torch.load(self._find_file_in_database(pos_timestamp, "dift_feat_0"))
+            pos_dift_feat_1 = torch.load(self._find_file_in_database(pos_timestamp, "dift_feat_1"))
+            pos_dift_feat_2 = torch.load(self._find_file_in_database(pos_timestamp, "dift_feat_2"))
 
-        for pos_timestamp in pos_timestamps:
-            pos_frame_path = self._find_file_in_database(pos_timestamp, "frame")
-            if not self.event_vpr:
-                pos_event_path = self._find_file_in_database(pos_timestamp, "event")
-            else:
-                pos_event_path = self._find_file_in_database(pos_timestamp, "bin")
+        if pos_frame_path is None :
+            raise FileNotFoundError(f"Positive frame path not found for timestamp {pos_timestamp}")
+        
+        if pos_event_path is None:
+            raise FileNotFoundError(f"Positive event path not found for timestamp {pos_timestamp}")
 
-            if pos_frame_path is None:
-                raise FileNotFoundError(f"Positive frame path not found for timestamp {pos_timestamp}")
-            
-            if pos_event_path is None:
-                raise FileNotFoundError(f"Positive event path not found for timestamp {pos_timestamp}")
+        pos_frame = Image.open(pos_frame_path).convert('L')
+        if self.transform:
+            pos_frame = self.transform(pos_frame)
 
-            pos_frame = Image.open(pos_frame_path).convert('L')
-            if self.transform:
-                pos_frame = self.transform(pos_frame)
-            pos_frames_dict[pos_timestamp] = pos_frame
+        if not self.event_vpr:
+            pos_event_volume = np.load(pos_event_path)
+            pos_event_volume = torch.tensor(pos_event_volume).float()
+            pos_event_volume = normalize_event_volume(pos_event_volume)
+            pos_event_volume = torch.nn.functional.interpolate(pos_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
+        else:
+            data = get_data_from_path(pos_event_path)
+            pos_event_volume = data
 
-            if not self.event_vpr:
-                pos_event_volume = np.load(pos_event_path)
-                pos_event_volume = torch.tensor(pos_event_volume).float()
-                pos_event_volume = normalize_event_volume(pos_event_volume)
-                pos_event_volume = torch.nn.functional.interpolate(pos_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
-                pos_event_volumes_dict[pos_timestamp] = pos_event_volume
-            else:
-                data = get_data_from_path(pos_event_path)
-                pos_event_volumes_dict[pos_timestamp] = data
 
         # 加载负样本，在database_dirs中查找每一个负样本
-        neg_frames_dict = {}
-        neg_event_volumes_dict = {}
+        neg_frames = []
+        neg_event_volumes = []
+        neg_dift_feats_0 = []
+        neg_dift_feats_1 = []
+        neg_dift_feats_2 = []
 
         for neg_timestamp in neg_timestamps:
             neg_frame_path = self._find_file_in_database(neg_timestamp, "frame")
@@ -177,6 +175,10 @@ class QueryDataset(Dataset):
                 neg_event_path = self._find_file_in_database(neg_timestamp, "event")
             else:
                 neg_event_path = self._find_file_in_database(neg_timestamp, "bin")
+            if self.use_dift:
+                neg_dift_feat_0 = torch.load(self._find_file_in_database(neg_timestamp, "dift_feat_0"))
+                neg_dift_feat_1 =  torch.load(self._find_file_in_database(neg_timestamp, "dift_feat_1"))
+                neg_dift_feat_2 =  torch.load(self._find_file_in_database(neg_timestamp, "dift_feat_2"))
 
             if neg_frame_path is None or neg_event_path is None:
                 raise FileNotFoundError(f"Negative sample not found for timestamp {neg_timestamp}")
@@ -184,38 +186,31 @@ class QueryDataset(Dataset):
             neg_frame = Image.open(neg_frame_path).convert('L')
             if self.transform:
                 neg_frame = self.transform(neg_frame)
-            neg_frames_dict[neg_timestamp] = neg_frame
+            neg_frames.append(neg_frame)
+            #print("in load Data neg frame:",neg_frame.size())
     
             if not self.event_vpr:
                 neg_event_volume = np.load(neg_event_path)
                 neg_event_volume = torch.tensor(neg_event_volume).float()
                 neg_event_volume = normalize_event_volume(neg_event_volume)
                 neg_event_volume = torch.nn.functional.interpolate(neg_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
-                neg_event_volumes_dict[neg_timestamp] = neg_event_volume
+                neg_event_volumes.append(neg_event_volume)
+                #print("in load Data neg event:",neg_event_volume.size())
             else:
                 data = get_data_from_path(neg_event_path)
-                neg_event_volumes_dict[neg_timestamp] = data  # neg_event_volumes [n,4]
-        
-        selected_pos_timestamps = list(pos_frames_dict.keys())  # 字符串
-        selected_neg_timestamps = list(neg_frames_dict.keys())
-        pos_frames = [pos_frames_dict[timestamp] for timestamp in selected_pos_timestamps]
-        pos_event_volumes = [pos_event_volumes_dict[timestamp] for timestamp in selected_pos_timestamps]
-        neg_frames = [neg_frames_dict[timestamp] for timestamp in selected_neg_timestamps]
-        neg_event_volumes = [neg_event_volumes_dict[timestamp] for timestamp in selected_neg_timestamps]
+                neg_event_volumes.append(data)  # neg_event_volumes [n,4]
+            if self.use_dift:
+                neg_dift_feats_0.append(neg_dift_feat_0)
+                neg_dift_feats_1.append(neg_dift_feat_1)
+                neg_dift_feats_2.append(neg_dift_feat_2)
+                
 
-
-        # 如果 < 10, pad 0
-        if len(pos_frames) < 10:
-            padding_size = 10 - len(pos_frames)
-            pos_frames_padded = pos_frames + [torch.zeros_like(pos_frames[0]) for _ in range(padding_size)]
-            pos_event_volumes_padded = pos_event_volumes + [torch.zeros_like(pos_event_volumes[0]) for _ in range(padding_size)]
-            selected_pos_timestamps_padded = selected_pos_timestamps + [f"p{pad_index}" for pad_index in range(padding_size)]
-            pos_frames, pos_event_volumes, selected_pos_timestamps = pos_frames_padded, pos_event_volumes_padded, selected_pos_timestamps_padded
-        if len(neg_frames) < 100:
-            padding_size = 100 - len(neg_frames)
-            neg_frames_padded = neg_frames + [torch.zeros_like(neg_frames[0]) for _ in range(padding_size)]
-            neg_event_volumes_padded = neg_event_volumes + [torch.zeros_like(neg_event_volumes[0]) for _ in range(padding_size)]
-            selected_neg_timestamps_padded = selected_neg_timestamps + [f"p{pad_index}" for pad_index in range(padding_size)]
-            neg_frames, neg_event_volumes, selected_neg_timestamps = neg_frames_padded, neg_event_volumes_padded, selected_neg_timestamps_padded
+        # 将列表转为张量
+        # 就返回列表吧
+        # neg_frames = torch.stack(neg_frames)  # 形状为 [num, 1, 256, 256]
+        # neg_event_volumes = torch.stack(neg_event_volumes)  # 形状为 [num, C, 256, 256] 或 [num, max_N, 4]
+        #print("in load Data:",len(neg_frames),len(neg_event_volumes))
+        if self.use_dift:
+            return query_dift_feat_0, query_dift_feat_1, query_dift_feat_2, pos_dift_feat_0, pos_dift_feat_1, pos_dift_feat_2, neg_dift_feats_0, neg_dift_feats_1, neg_dift_feats_2
         
-        return query_frame, query_event_volume, pos_frames, pos_event_volumes, neg_frames, neg_event_volumes, selected_pos_timestamps, selected_neg_timestamps
+        return query_frame, query_event_volume, pos_frame, pos_event_volume, neg_frames, neg_event_volumes

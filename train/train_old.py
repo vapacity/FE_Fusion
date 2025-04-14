@@ -18,8 +18,8 @@ from loss import MultiNegativeTripletLoss
 from net import Net
 from models.DIFT_Net import DiftNet
 from test_Recall_utils import recall_at_n_with_distance
-from torch.nn import CosineSimilarity
-    
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train FE-Net with different configurations.")
     parser.add_argument('--use_frame', action='store_true', help="Use only frames (default: False)")
@@ -31,6 +31,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=8, help="batch_size")
 
     return parser.parse_args()
+
 
 
 # 创建数据集和 DataLoader
@@ -51,7 +52,7 @@ if __name__ == "__main__":
     def generate_paths(exp_item):
         query_path = processed_data_path+experiment_item[exp_item]['query']
         database_paths = [f"{processed_data_path}{db}" for db in experiment_item[exp_item]['database']]
-        triplet_path = processed_data_path+'triplets/'+exp_item+"_multi/triplet_result.txt"
+        triplet_path = processed_data_path+'triplets/'+exp_item+"/triplet_result.txt"
         return query_path, database_paths, triplet_path
 
     def generate_test_paths(exp_item):
@@ -115,7 +116,7 @@ if __name__ == "__main__":
     channel_sizes = [128, 256, 512]
 
     dataset = QueryDataset(triplet_file, query_dir, database_dirs, transform, event_vpr=args.event_vpr, use_dift=args.use_dift)
-    databaseDataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, event_vpr=args.event_vpr, use_dift=args.use_dift)    # train 时用不到gps信息，用gps的话可能会少一些数据
+    databaseDataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, event_vpr=args.event_vpr, use_dift=args.use_dift)
     test_query_dataset = DatabaseDataset(database_dirs=[test_query_dir],transform=transform, event_vpr=args.event_vpr, use_dift=args.use_dift, use_timestamps_from_gps=True)
     test_database_dataset = DatabaseDataset(database_dirs=test_database_dirs,transform=transform, event_vpr=args.event_vpr, use_dift=args.use_dift, use_timestamps_from_gps=True)
 
@@ -164,97 +165,49 @@ if __name__ == "__main__":
             model_path = os.path.join(save_dir, f'model_{"eventVPR" if args.event_vpr else "FEFusion"}_epoch_{epoch+1}.pth')
             ######################################### train #########################################
             epoch_loss = 0
-            model.eval()
-            database_features, timestamps_list = update_test_features(model, database_loader)
-            database_features_dict = {timestamp: feature for timestamp, feature in zip(timestamps_list, database_features)}
             model.train()  # 设置模型为训练模式
             
             with tqdm(total=len(dataloader), desc=f'Epoch {epoch+1}/{num_epochs}', unit='batch') as pbar:
                 for batch in dataloader:
+                    # 将数据移动到 GPU
+                    query_frame_single, query_event_volume_single, pos_frame_single, pos_event_volume_single, neg_frames_multi ,neg_event_volumes_multi = batch # 带multi的第0维多一个维度
+                    query_frame_single, query_event_volume_single, pos_frame_single, pos_event_volume_single = query_frame_single.cuda(), query_event_volume_single.cuda(), pos_frame_single.cuda(), pos_event_volume_single.cuda()
+
+                    # print("neg frames:",neg_frames.size())
+                    # print("neg event:",neg_event_volumes.size())
                     # 清零优化器梯度
                     optimizer.zero_grad()
 
-                    # 将数据移动到 GPU
-                    query_frame_single, query_event_volume_single, pos_frames_multi, pos_event_volumes_multi, neg_frames_multi ,neg_event_volumes_multi, pos_timestamps, neg_timestamps = batch
-                    # pos_frames_and_event_volumes_dict 和 neg_frames_and_event_volumes_dict 都是 list of dicts
-                    query_frame_single, query_event_volume_single = query_frame_single.cuda(), query_event_volume_single.cuda()
                     # 前向传播计算 query 和 pos 的特征表示
                     anchor_output = model(query_frame_single, query_event_volume_single)  # 锚点特征
-
-
-                    ############################################# 选取正样本和负样本 #############################################
-                    query_feature = anchor_output.detach().cpu()
-                    cos = CosineSimilarity(dim=2, eps=1e-8)
-                    all_similarity_scores = cos(query_feature.unsqueeze(1), database_features.unsqueeze(0))    #[B, length]
-
-                    pos_frame_batch = []
-                    pos_event_volume_batch = []
-                    neg_frames_batch = [[] for _ in range(10)]
-                    neg_event_volumes_batch = [[] for _ in range(10)]
-                    min_num_negatives = 10
-
-                    for batch_idx in range(query_frame_single.size(0)):
-                        all_similarity_scores_item = all_similarity_scores[batch_idx]   # length
-                        all_similarity_scores_item_dict = {timestamp: score for timestamp, score in zip(timestamps_list, all_similarity_scores_item)}
-                        pos_timestamps_item = [pos_timestamp_line[batch_idx] for pos_timestamp_line in pos_timestamps]
-                        neg_timestamps_item = [neg_timestamp_line[batch_idx] for neg_timestamp_line in neg_timestamps]
-
-                        pos_timestamps_item = [pos_timestamps_item[i] for i in range(len(pos_timestamps_item)) if not pos_timestamps_item[i].startswith("p")]
-                        neg_timestamps_item = [neg_timestamps_item[i] for i in range(len(neg_timestamps_item)) if not neg_timestamps_item[i].startswith("p")]
-
-                        pos_frames_and_event_volumes_dict = {pos_timestamps_item[i]: (pos_frames_multi[i][batch_idx], pos_event_volumes_multi[i][batch_idx]) for i in range(len(pos_timestamps_item))}
-                        neg_frames_and_event_volumes_dict = {neg_timestamps_item[i]: (neg_frames_multi[i][batch_idx], neg_event_volumes_multi[i][batch_idx]) for i in range(len(neg_timestamps_item))}
-                        
-                        pos_item_scores = torch.stack([all_similarity_scores_item_dict[timestamp] for timestamp in pos_timestamps_item])    # [10]
-                        neg_item_scores = torch.stack([all_similarity_scores_item_dict[timestamp] for timestamp in neg_timestamps_item])    # [100]
-
-                        # 从 pos_timestamps_item 中找到score最大的index
-                        pos_item_scores, pos_item_scores_indices = torch.topk(pos_item_scores, 1, dim=0, largest=True, sorted=True)
-                        best_pos_timestamp = pos_timestamps_item[pos_item_scores_indices[0]]
-                        min_num_negatives = min(min_num_negatives, len(neg_item_scores))
-                        hard_negative_scores, hard_negative_scores_indices = torch.topk(neg_item_scores, min_num_negatives, dim=0, largest=True, sorted=True)
-                        hard_negative_timestamps = [neg_timestamps_item[i] for i in hard_negative_scores_indices]
-
-                        pos_frame, pos_event_volume = pos_frames_and_event_volumes_dict[best_pos_timestamp]
-                        pos_frame_batch.append(pos_frame)
-                        pos_event_volume_batch.append(pos_event_volume)
-
-                        for i, hard_negative_timestamp in enumerate(hard_negative_timestamps):
-                            neg_frames_batch[i].append(neg_frames_and_event_volumes_dict[hard_negative_timestamp][0])
-                            neg_event_volumes_batch[i].append(neg_frames_and_event_volumes_dict[hard_negative_timestamp][1])
-
-                    if min_num_negatives < 10:
-                        print(f"min_num_negatives: {min_num_negatives}")
-                    pos_frame = torch.stack(pos_frame_batch)    # B C H W
-                    pos_event_volume = torch.stack(pos_event_volume_batch)
-                    neg_frames = [torch.stack(neg_frames_batch[i]) for i in range(min_num_negatives)]
-                    neg_event_volumes = [torch.stack(neg_event_volumes_batch[i]) for i in range(min_num_negatives)]
-
-                    ############################################# 选取正样本和负样本结束 #############################################
-
-                    pos_frame, pos_event_volume = pos_frame.cuda(), pos_event_volume.cuda()
-                    pos_output = model(pos_frame, pos_event_volume)  # 正样本特征
+                    pos_output = model(pos_frame_single, pos_event_volume_single)  # 正样本特征
+                    num_negatives = len(neg_frames_multi)  # 获取负样本数量，假设为 10
 
                     # 初始化用于存储所有负样本特征的列表
                     all_negative_outputs = []
 
                     # 逐个计算每个负样本的特征
-                    for i in range(min_num_negatives):
+                    for i in range(num_negatives):
                         # 提取第 i 个负样本
-                        neg_frame = neg_frames[i]  # 形状为 [batch_size, 1, 256, 256]
-                        neg_event_volume = neg_event_volumes[i]  # 不use vpr 形状为 [batch_size, 2, 256, 256] use vpr 形状为 [batch_size, max_len, 4]
+                        neg_frame = neg_frames_multi[i]  # 形状为 [batch_size, 1, 256, 256]
+                        neg_event_volume = neg_event_volumes_multi[i]  # 不use vpr 形状为 [batch_size, 2, 256, 256] use vpr 形状为 [batch_size, max_len, 4]
                         neg_frame, neg_event_volume = neg_frame.cuda(), neg_event_volume.cuda()
+
+                        # 计算第 i 个负样本的特征
                         neg_output = model(neg_frame, neg_event_volume)  # 形状为 [batch_size, feature_dim]
 
                         # 将该负样本的特征添加到列表
                         all_negative_outputs.append(neg_output)     # torch.Size([8, 16384])
+
                     # 将所有负样本特征拼接成 [batch_size, num_negatives, feature_dim]
                     negative_outputs = torch.stack(all_negative_outputs, dim=1)  # [batch_size, 10, feature_dim]
 
                     # 计算三元组损失
                     with torch.autograd.detect_anomaly():
-                        batch_loss = criterion(anchor_output, pos_output, negative_outputs) # anchor_output有梯度，query_feature没有梯度
+                        batch_loss = criterion(anchor_output, pos_output, negative_outputs)
                         epoch_loss += batch_loss.item()
+                        # breakpoint()
+                        # 反向传播并优化
                         batch_loss.backward()
                     optimizer.step()
 

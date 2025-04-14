@@ -86,7 +86,7 @@ class TSFE_Net(nn.Module):
         self.use_frame = use_frame  # 标志，指示是否使用 frame 数据
         self.use_event = use_event  # 标志，指示是否使用 event 数据
         self.event_vpr = event_vpr
-        resnet = resnet34(pretrained=True)
+        resnet = resnet34(pretrained=False)
 
         # 定义 frame 和 event 的处理流
         self.conv1_frame = BasicConv(1, mid_channels, kernel_size=7, stride=2, padding=3)
