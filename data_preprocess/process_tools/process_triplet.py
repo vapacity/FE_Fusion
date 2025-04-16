@@ -111,16 +111,9 @@ def find_triplet_samples(query_gps_path, database_gps_paths, save_path,pos_thres
             if len(pos_samples) == 0 or len(neg_samples) == 0:
                 continue
             # Pad positive samples if needed
-            if len(pos_samples) <= 100:
-                positive_sample_times = list(pos_samples)
-            else:
-                positive_sample_times = np.random.choice(pos_samples, 100, replace=False)
-                
-            # Pad negative samples if needed    
-            if len(neg_samples) <= 1000:
-                negative_sample_times = list(neg_samples)
-            else:
-                negative_sample_times = np.random.choice(neg_samples, 1000, replace=False)
+            positive_sample_times = list(pos_samples)
+            negative_sample_times = list(neg_samples)
+
             
             line = f"{anchor_time}; {', '.join(map(str, positive_sample_times))}; {', '.join(map(str, negative_sample_times))}\n"            
             file.write(line)

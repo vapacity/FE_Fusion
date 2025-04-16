@@ -113,6 +113,7 @@ if __name__ == "__main__":
     BATCH_SIZE = args.batch_size
     num_epochs = args.num_epochs
     channel_sizes = [128, 256, 512]
+    global_num_negatives = 12
 
     dataset = QueryDataset(triplet_file, query_dir, database_dirs, transform, event_vpr=args.event_vpr, use_dift=args.use_dift)
     databaseDataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, event_vpr=args.event_vpr, use_dift=args.use_dift)    # train 时用不到gps信息，用gps的话可能会少一些数据
@@ -125,7 +126,7 @@ if __name__ == "__main__":
         test_query_loader = DataLoader(test_query_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=16)
         test_database_loader = DataLoader(test_database_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=16)
     else:
-        dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=24, collate_fn=partial(collate_query_vpr, num_negatives=10))
+        dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=24, collate_fn=partial(collate_query_vpr, num_negatives=global_num_negatives))
         database_loader = DataLoader(databaseDataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=16, collate_fn=collate_database_vpr)
         test_query_loader = DataLoader(test_query_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=16, collate_fn=collate_database_vpr_test)
         test_database_loader = DataLoader(test_database_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=16, collate_fn=collate_database_vpr_test)
@@ -138,7 +139,8 @@ if __name__ == "__main__":
 
     ######################################### train parameters #########################################
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-    criterion = MultiNegativeTripletLoss(margin=0.1).cuda()  # 使用自定义的多负样本三元组损失函数
+    margin = 0.1
+    criterion = MultiNegativeTripletLoss(margin=margin).cuda()  # 使用自定义的多负样本三元组损失函数
     loss_history = []
     accuracy_history = []
 
@@ -184,18 +186,20 @@ if __name__ == "__main__":
 
                     ############################################# 选取正样本和负样本 #############################################
                     query_feature = anchor_output.detach().cpu()
-                    cos = CosineSimilarity(dim=2, eps=1e-8)
-                    all_similarity_scores = cos(query_feature.unsqueeze(1), database_features.unsqueeze(0))    #[B, length]
+                    # cos = CosineSimilarity(dim=2, eps=1e-8)
+                    # all_similarity_scores = cos(query_feature.unsqueeze(1), database_features.unsqueeze(0))    #[B, length]
+                    # all_similarity_scores = 1 - torch.einsum('bi,li->bl', [query_feature, database_features])    # 如果改回L2
+                    all_similarity_scores = torch.norm(query_feature.unsqueeze(1) - database_features.unsqueeze(0), p=2, dim=2)    # (b, 1, i)与(1, l, i)
 
                     pos_frame_batch = []
                     pos_event_volume_batch = []
-                    neg_frames_batch = [[] for _ in range(10)]
-                    neg_event_volumes_batch = [[] for _ in range(10)]
-                    min_num_negatives = 10
+                    neg_frames_batch = [[] for _ in range(global_num_negatives)]
+                    neg_event_volumes_batch = [[] for _ in range(global_num_negatives)]
+                    min_num_negatives = global_num_negatives
 
                     for batch_idx in range(query_frame_single.size(0)):
                         all_similarity_scores_item = all_similarity_scores[batch_idx]   # length
-                        all_similarity_scores_item_dict = {timestamp: score for timestamp, score in zip(timestamps_list, all_similarity_scores_item)}
+                        all_similarity_scores_item_dict = {timestamp: score for timestamp, score in zip(timestamps_list, all_similarity_scores_item)}   # 存储对于某个query, 所有database中timestamp对应的score
                         pos_timestamps_item = [pos_timestamp_line[batch_idx] for pos_timestamp_line in pos_timestamps]
                         neg_timestamps_item = [neg_timestamp_line[batch_idx] for neg_timestamp_line in neg_timestamps]
 
@@ -208,12 +212,34 @@ if __name__ == "__main__":
                         pos_item_scores = torch.stack([all_similarity_scores_item_dict[timestamp] for timestamp in pos_timestamps_item])    # [10]
                         neg_item_scores = torch.stack([all_similarity_scores_item_dict[timestamp] for timestamp in neg_timestamps_item])    # [100]
 
-                        # 从 pos_timestamps_item 中找到score最大的index
-                        pos_item_scores, pos_item_scores_indices = torch.topk(pos_item_scores, 1, dim=0, largest=True, sorted=True)
+                        # 从 pos_timestamps_item 中找到最接近的index
+                        _, pos_item_scores_indices = torch.topk(pos_item_scores, 1, dim=0, largest=False, sorted=True)
                         best_pos_timestamp = pos_timestamps_item[pos_item_scores_indices[0]]
+                        # 30%概率，positive 是随机找的，这个似乎可以提点效果
+                        if np.random.random() < 0.3:
+                            best_pos_timestamp = np.random.choice(pos_timestamps_item)
+                        pos_score = all_similarity_scores_item_dict[best_pos_timestamp]
+                        
                         min_num_negatives = min(min_num_negatives, len(neg_item_scores))
-                        hard_negative_scores, hard_negative_scores_indices = torch.topk(neg_item_scores, min_num_negatives, dim=0, largest=True, sorted=True)
+                        hard_negative_scores, hard_negative_scores_indices = torch.topk(neg_item_scores, min_num_negatives, dim=0, largest=False, sorted=True)
                         hard_negative_timestamps = [neg_timestamps_item[i] for i in hard_negative_scores_indices]
+                        # 在hard_negative_timestamps之外，额外在score小于positive + margin的negative里随机选replace_num个，替换掉topk里面的最后replace_num个
+                        replace_num = 4
+                        valid_neg_indices = []
+                        for i, neg_timestamp in enumerate(neg_timestamps_item):
+                            if neg_timestamp not in hard_negative_timestamps:
+                                neg_score = all_similarity_scores_item_dict[neg_timestamp]
+                                if neg_score < pos_score + margin:
+                                    valid_neg_indices.append(i)
+                        if len(valid_neg_indices) > replace_num:
+                            random_indices_new = np.random.choice(valid_neg_indices, replace_num, replace=False)
+                        else:
+                            random_indices_new = valid_neg_indices
+                        if len(random_indices_new) > 0:
+                            random_timestamps_new = [neg_timestamps_item[i] for i in random_indices_new]
+                            # Replace last replace_num hard negatives with random ones
+                            hard_negative_timestamps = hard_negative_timestamps[:-len(random_timestamps_new)] + random_timestamps_new
+
 
                         pos_frame, pos_event_volume = pos_frames_and_event_volumes_dict[best_pos_timestamp]
                         pos_frame_batch.append(pos_frame)
@@ -223,15 +249,12 @@ if __name__ == "__main__":
                             neg_frames_batch[i].append(neg_frames_and_event_volumes_dict[hard_negative_timestamp][0])
                             neg_event_volumes_batch[i].append(neg_frames_and_event_volumes_dict[hard_negative_timestamp][1])
 
-                    if min_num_negatives < 10:
-                        print(f"min_num_negatives: {min_num_negatives}")
                     pos_frame = torch.stack(pos_frame_batch)    # B C H W
                     pos_event_volume = torch.stack(pos_event_volume_batch)
                     neg_frames = [torch.stack(neg_frames_batch[i]) for i in range(min_num_negatives)]
                     neg_event_volumes = [torch.stack(neg_event_volumes_batch[i]) for i in range(min_num_negatives)]
 
                     ############################################# 选取正样本和负样本结束 #############################################
-
                     pos_frame, pos_event_volume = pos_frame.cuda(), pos_event_volume.cuda()
                     pos_output = model(pos_frame, pos_event_volume)  # 正样本特征
 
@@ -249,7 +272,7 @@ if __name__ == "__main__":
                         # 将该负样本的特征添加到列表
                         all_negative_outputs.append(neg_output)     # torch.Size([8, 16384])
                     # 将所有负样本特征拼接成 [batch_size, num_negatives, feature_dim]
-                    negative_outputs = torch.stack(all_negative_outputs, dim=1)  # [batch_size, 10, feature_dim]
+                    negative_outputs = torch.stack(all_negative_outputs, dim=1)  # [batch_size, global_num_negatives, feature_dim]
 
                     # 计算三元组损失
                     with torch.autograd.detect_anomaly():

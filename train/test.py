@@ -110,43 +110,45 @@ if __name__ == '__main__':
 
     processed_data_path = '/root/autodl-tmp/processed_data/'
 
-    # experiment_item = {
-    #     'experiment_1': {
-    #         'query': 'sr',
-    #         'database': ['dt','mn']
-    #     },
-    #     'experiment_2': {
-    #         'query': 'mn',
-    #         'database': ['ss2','dt']
-    #     },
-    #     'experiment_3': {
-    #         'query': 'sr',
-    #         'database': ['ss2','dt']
-    #     },
-    #     'experiment_4': {
-    #         'query': 'sr',
-    #         'database': ['ss2','mn']
-    #     }
-    # }
-
+    # test in train split
     experiment_item = {
         'experiment_1': {
-            'query': 'ss2',
-            'database': ['ss1']
+            'query': 'sr',
+            'database': ['dt','mn']
         },
         'experiment_2': {
-            'query': 'sr',
-            'database': ['ss1']
+            'query': 'mn',
+            'database': ['ss2','dt']
         },
         'experiment_3': {
-            'query': 'mn',
-            'database': ['ss1']
+            'query': 'sr',
+            'database': ['ss2','dt']
         },
         'experiment_4': {
-            'query': 'dt',
-            'database': ['ss1']
+            'query': 'sr',
+            'database': ['ss2','mn']
         }
     }
+
+    # test in test split
+    # experiment_item = {
+    #     'experiment_1': {
+    #         'query': 'ss2',
+    #         'database': ['ss1']
+    #     },
+    #     'experiment_2': {
+    #         'query': 'sr',
+    #         'database': ['ss1']
+    #     },
+    #     'experiment_3': {
+    #         'query': 'mn',
+    #         'database': ['ss1']
+    #     },
+    #     'experiment_4': {
+    #         'query': 'dt',
+    #         'database': ['ss1']
+    #     }
+    # }
 
     
     test_query_dir, test_database_dirs, test_triplet_file, test_query_gps_path, test_database_gpt_paths = generate_test_paths(experiment_name)
@@ -209,9 +211,9 @@ if __name__ == '__main__':
             recall_5 = recall_at_n_with_distance(test_query_loader, database_features, test_query_gps_data, test_database_gps_data, model, timestamps_list, N=5, distance_threshold=75, use_dift=use_dift)
             
             # 保存结果
-            f.write(f"Epoch {epoch}, Recall@1: {recall_1:.4f}, Recall@5: {recall_5:.4f}\n")
+            f.write(f"Epoch-train {epoch}, Recall@1: {recall_1:.4f}, Recall@5: {recall_5:.4f}\n")
             f.flush()
-            print(f"Epoch {epoch} 结果已保存: Recall@1: {recall_1:.4f}, Recall@5: {recall_5:.4f}")
+            print(f"Epoch-train {epoch} 结果已保存: Recall@1: {recall_1:.4f}, Recall@5: {recall_5:.4f}")
 
 
 
