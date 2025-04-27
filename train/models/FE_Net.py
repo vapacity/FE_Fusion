@@ -12,7 +12,7 @@ class MainNet(nn.Module):
         self.mf_main_net = MF_Net.MF_MainNet(channel_sizes)  # 假设 MF_MainNet 在 MF_Net 模块中定义
         self.mf_sub_net1 = MF_Net.MF_SubNet1(channel_sizes)  # 假设 MF_SubNet1 在 MF_Net 模块中定义
         self.mf_sub_net2 = MF_Net.MF_SubNet2(channel_sizes)  # 假设 MF_SubNet2 在 MF_Net 模块中定义
-        self.drw_net = DRW_Net.DRW_Net()  # 假设 DRW_Net 在 DRW_Net 模块中定义
+        self.drw_net = DRW_Net.DRW_Net(num_descriptors=3)  # 假设 DRW_Net 在 DRW_Net 模块中定义
 
     def forward(self, frames, events):
         # TSFE_Net 的前向传播
@@ -26,7 +26,8 @@ class MainNet(nn.Module):
         M2 = self.mf_sub_net2(processed_S2,S3)
         #print('testpoint2: M1',M1.shape,'M2',M2.shape,'M3',M3.shape)
         # DRW_Net 的前向传播
-        drw_output = self.drw_net(M1,M2,M3)
+        descriptors = torch.stack([M1,M2,M3], dim=1)
+        drw_output = self.drw_net(descriptors)
         
         # 返回主网络的输出
         return drw_output

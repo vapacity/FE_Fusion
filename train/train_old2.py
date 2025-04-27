@@ -7,7 +7,7 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from functools import partial
-import wandb
+
 
 from dataloader.queryDataset import QueryDataset
 from dataloader.databaseDataset import DatabaseDataset
@@ -31,6 +31,7 @@ def generate_paths(exp_item, processed_data_path, experiment_item):
 def generate_test_paths(exp_item, processed_data_path, experiment_item):
     query_path = processed_data_path+experiment_item[exp_item]['query']
     database_paths = [f"{processed_data_path}{db}" for db in experiment_item[exp_item]['database']]
+    # 对 test来说 只取query即可，因此和train相同也无妨
     query_gps_path = processed_data_path+experiment_item[exp_item]['query']+'/interpolated_gps.txt'
     database_gps_paths = [processed_data_path+db+'/interpolated_gps.txt' for db in experiment_item[exp_item]['database']]
     return query_path, database_paths, query_gps_path, database_gps_paths
@@ -49,8 +50,7 @@ def parse_args():
     parser.add_argument('--use_dift', action='store_true', help="Use DIFT")
     parser.add_argument('--experiment_name', type=str, default="experiment_3", help="Experiment Name")
     parser.add_argument('--num_epochs', type=int, default=200, help="num_epochs")
-    parser.add_argument('--batch_size', type=int, default=4, help="batch_size")
-    parser.add_argument('--load_model', type=str, default=None, help="load_model")
+    parser.add_argument('--batch_size', type=int, default=6, help="batch_size")
 
     return parser.parse_args()
 
@@ -60,29 +60,6 @@ if __name__ == "__main__":
     args = parse_args()
     seed = 42
     set_seed(seed)
-    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    if args.use_frame and args.use_event:
-        current_time = current_time + "_FEFusion"
-    elif args.use_frame:
-        current_time = current_time + "_Frame"
-    elif args.use_event:
-        current_time = current_time + "_Event"
-
-
-    # Initialize wandb
-    wandb.init(
-        project=f"fe-fusion-{args.experiment_name}",
-        name=f"fe-fusion-changeDRW-{current_time}",
-        config={
-            "use_frame": args.use_frame,
-            "use_event": args.use_event,
-            "event_vpr": args.event_vpr,
-            "use_dift": args.use_dift,
-            "experiment_name": args.experiment_name,
-            "num_epochs": args.num_epochs,
-            "batch_size": args.batch_size
-        }
-    )
 
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
@@ -135,7 +112,10 @@ if __name__ == "__main__":
     test_query_dir, test_database_dirs, test_query_gps_path, test_database_gps_paths = generate_test_paths(args.experiment_name, processed_data_path, test_experiment_item)
     test_train_query_dir, test_train_database_dirs, test_train_query_gps_path, test_train_database_gps_paths = generate_test_paths(args.experiment_name, processed_data_path, experiment_item)
 
+    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     save_dir = save_path + f"result_{current_time}/saved_model"
+    loss_file = save_path + f"result_{current_time}/loss.txt"
+
     BATCH_SIZE = args.batch_size
     num_epochs = args.num_epochs
     channel_sizes = [128, 256, 512]
@@ -167,14 +147,13 @@ if __name__ == "__main__":
         model = DiftNet(channel_sizes).cuda()
     else:
         model = Net(args.use_event, args.use_frame, args.event_vpr, channel_sizes=channel_sizes).cuda()
-    
-    if args.load_model:
-        model.load_state_dict(torch.load(args.load_model))
 
     ######################################### train parameters #########################################
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     margin = 0.1
     criterion = MultiNegativeTripletLoss(margin=margin).cuda()  # 使用自定义的多负样本三元组损失函数
+    loss_history = []
+    accuracy_history = []
 
     ######################################### test prepare #########################################
     test_database_gps_data = {}
@@ -299,26 +278,30 @@ if __name__ == "__main__":
                     pos_frame, pos_event_volume = pos_frame.cuda(), pos_event_volume.cuda()
                     pos_output = model(pos_frame, pos_event_volume)  # 正样本特征
 
-
-                    #串行版本计算
+                    # 初始化用于存储所有负样本特征的列表
                     all_negative_outputs = []
-                    for i in range(min_num_negatives):
-                        # 提取第 i 个负样本
-                        neg_frame = neg_frames[i]  # 形状为 [batch_size, 1, 256, 256]
-                        neg_event_volume = neg_event_volumes[i]  # 不use vpr 形状为 [batch_size, 2, 256, 256] use vpr 形状为 [batch_size, max_len, 4]
-                        neg_frame, neg_event_volume = neg_frame.cuda(), neg_event_volume.cuda()
-                        neg_output = model(neg_frame, neg_event_volume)  # 形状为 [batch_size, feature_dim]
 
-                        # 将该负样本的特征添加到列表
-                        all_negative_outputs.append(neg_output)     # torch.Size([8, 16384])
+                    # 逐个计算每个负样本的特征
+                    # 串行计算
+                    # for i in range(min_num_negatives):
+                    #     # 提取第 i 个负样本
+                    #     neg_frame = neg_frames[i]  # 形状为 [batch_size, 1, 256, 256]
+                    #     neg_event_volume = neg_event_volumes[i]  # 不use vpr 形状为 [batch_size, 2, 256, 256] use vpr 形状为 [batch_size, max_len, 4]
+                    #     neg_frame, neg_event_volume = neg_frame.cuda(), neg_event_volume.cuda()
+                    #     neg_output = model(neg_frame, neg_event_volume)  # 形状为 [batch_size, feature_dim]
+
+                    #     # 将该负样本的特征添加到列表
+                    #     all_negative_outputs.append(neg_output)     # torch.Size([8, 16384])
                     # 将所有负样本特征拼接成 [batch_size, num_negatives, feature_dim]
-                    negative_outputs = torch.stack(all_negative_outputs, dim=1)  # [batch_size, global_num_negatives, feature_dim]
+                    # negative_outputs = torch.stack(all_negative_outputs, dim=1)  # [batch_size, global_num_negatives, feature_dim]
+                    
+                    # 并行计算
+                    neg_frames = torch.cat(neg_frames, dim=0).cuda()  # [batch_size * global_num_negatives, 1, 256, 256]
+                    neg_event_volumes = torch.cat(neg_event_volumes, dim=0).cuda()  # [batch_size * global_num_negatives, 2, 256, 256]
+                    neg_outputs = model(neg_frames, neg_event_volumes)  # [batch_size * global_num_negatives, feature_dim]
+                    negative_outputs = neg_outputs.view(query_frame_single.size(0), global_num_negatives, -1)
 
-                    # 并行计算负样本特征
-                    # neg_frames = torch.cat(neg_frames, dim=0).cuda()  # [batch_size * global_num_negatives, 1, 256, 256]
-                    # neg_event_volumes = torch.cat(neg_event_volumes, dim=0).cuda()  # [batch_size * global_num_negatives, 2, 256, 256]
-                    # neg_outputs = model(neg_frames, neg_event_volumes)  # [batch_size * global_num_negatives, feature_dim]
-                    # negative_outputs = neg_outputs.view(query_frame_single.size(0), global_num_negatives, -1)
+
 
                     # 计算三元组损失
                     batch_loss = criterion(anchor_output, pos_output, negative_outputs) # anchor_output有梯度，query_feature没有梯度
@@ -326,34 +309,39 @@ if __name__ == "__main__":
                     batch_loss.backward()
                     optimizer.step()
 
-                    # Log batch loss to wandb
-                    wandb.log({"batch_loss": batch_loss.item()})
+                    # 更新进度条上的损失信息
+                    pbar.set_postfix(loss=f"{batch_loss.item():.4f}")
                     pbar.update(1)
 
-            # Log epoch metrics
-            average_loss = epoch_loss / len(dataloader)
-            wandb.log({"train_loss": average_loss})
+                    
+            # 打印当前 epoch 的平均损失
+            average_loss = epoch_loss / len(dataloader) 
+            print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {average_loss}')
 
             if epoch == 0:
-                os.makedirs(save_dir, exist_ok=True)
-            # Save model
+                os.makedirs(os.path.dirname(loss_file), exist_ok=True)
+                os.makedirs(save_dir,exist_ok=True)
+
+            ######################################### log and save #########################################
+            # 写入损失
+            with open(loss_file, 'a') as f:
+                f.write(f'Epoch [{epoch+1}/{num_epochs}], Loss: {average_loss}\n')
             torch.save(model.state_dict(), model_path)
+
 
             ######################################### test #########################################
             model.eval()
-            database_features, timestamps_list = update_test_features(model, test_database_loader)
-            train_database_features, train_timestamps_list = update_test_features(model, test_train_database_loader)
-
-            # Calculate recalls
-            recall_1 = recall_at_n_with_distance(test_query_loader, database_features, test_query_gps_data, test_database_gps_data, model, timestamps_list, N=1, distance_threshold=75, use_dift=args.use_dift)
-            recall_5 = recall_at_n_with_distance(test_query_loader, database_features, test_query_gps_data, test_database_gps_data, model, timestamps_list, N=5, distance_threshold=75, use_dift=args.use_dift)
-            train_recall_1 = recall_at_n_with_distance(test_train_query_loader, train_database_features, test_train_query_gps_data, test_train_database_gps_data, model, train_timestamps_list, N=1, distance_threshold=75, use_dift=args.use_dift)
-            train_recall_5 = recall_at_n_with_distance(test_train_query_loader, train_database_features, test_train_query_gps_data, test_train_database_gps_data, model, train_timestamps_list, N=5, distance_threshold=75, use_dift=args.use_dift)
-
-            # Log test metrics to wandb
-            wandb.log({
-                "test_recall@1": recall_1,
-                "test_recall@5": recall_5,
-                "train_recall@1": train_recall_1,
-                "train_recall@5": train_recall_5
-            })
+            output_file = save_dir.replace("saved_model", "test_recall_results.txt")
+            with open(output_file, 'a') as f:
+                database_features, timestamps_list = update_test_features(model, test_database_loader)
+                train_database_features, train_timestamps_list = update_test_features(model, test_train_database_loader)
+                # 计算 Recall@1 和 Recall@5
+                print("calculate recall")
+                recall_1 = recall_at_n_with_distance(test_query_loader, database_features, test_query_gps_data, test_database_gps_data, model, timestamps_list, N=1, distance_threshold=75, use_dift=args.use_dift)
+                recall_5 = recall_at_n_with_distance(test_query_loader, database_features, test_query_gps_data, test_database_gps_data, model, timestamps_list, N=5, distance_threshold=75, use_dift=args.use_dift)
+                train_recall_1 = recall_at_n_with_distance(test_train_query_loader, train_database_features, test_train_query_gps_data, test_train_database_gps_data, model, train_timestamps_list, N=1, distance_threshold=75, use_dift=args.use_dift)
+                train_recall_5 = recall_at_n_with_distance(test_train_query_loader, train_database_features, test_train_query_gps_data, test_train_database_gps_data, model, train_timestamps_list, N=5, distance_threshold=75, use_dift=args.use_dift)
+                # 保存结果
+                f.write(f"Epoch {epoch}, Test Recall@1: {recall_1:.4f}, Test Recall@5: {recall_5:.4f}, Train Recall@1: {train_recall_1:.4f}, Train Recall@5: {train_recall_5:.4f}\n")
+                f.flush()
+                print(f"Epoch {epoch} 结果已保存: Test Recall@1: {recall_1:.4f}, Test Recall@5: {recall_5:.4f}, Train Recall@1: {train_recall_1:.4f}, Train Recall@5: {train_recall_5:.4f}")

@@ -118,20 +118,34 @@ class TSFE_Net(nn.Module):
 
     def forward(self, frame, event):
         if self.use_frame and self.use_event:
-            # 使用 frame 和 event 数据
-            frame_features = self.forward_stream(frame, is_event=False)
+            frame_features = self.forward_stream(frame, is_event=False)  # shape: (B, C, ...)
             event_features = self.forward_stream(event, is_event=True)
+
+            # if self.training:
+            #     B = frame_features.shape[0]
+            #     drop_probs = np.random.rand(B)  # 每个样本一个概率，对于每个样本只会丢弃一个
+            #     frame_keep = (drop_probs >= 0.3)  # 30% 概率丢弃 frame
+            #     # event_keep = (drop_probs < 0.3) | (drop_probs >= 0.45)  # 15% 概率丢弃 event
+            #     event_keep = (drop_probs < 0.8)  # 20% 概率丢弃 event
+
+            #     # 构造 mask：shape (B, 1, 1, ...) 方便 broadcast
+            #     frame_mask = torch.tensor(frame_keep, dtype=frame_features.dtype, device=frame_features.device).view(B, *([1] * (frame_features.dim() - 1)))
+            #     event_mask = torch.tensor(event_keep, dtype=event_features.dtype, device=event_features.device).view(B, *([1] * (event_features.dim() - 1))) 
+
+            #     frame_features = frame_features * frame_mask
+            #     event_features = event_features * event_mask
+
             merged_features = torch.cat([frame_features, event_features], dim=1)
             return merged_features
         elif self.use_frame:
-            # 仅使用 frame 数据，将特征复制一遍以加倍通道数
+            # 仅使用 frame 数据，event置0
             frame_features = self.forward_stream(frame, is_event=False)
-            doubled_features = torch.cat([frame_features, frame_features], dim=1)
+            doubled_features = torch.cat([frame_features, torch.zeros_like(frame_features)], dim=1)
             return doubled_features
         elif self.use_event:
-            # 仅使用 event 数据，将特征复制一遍以加倍通道数
+            # 仅使用 event 数据，frame置0
             event_features = self.forward_stream(event, is_event=True)
-            doubled_features = torch.cat([event_features, event_features], dim=1)
+            doubled_features = torch.cat([torch.zeros_like(event_features), event_features], dim=1)
             return doubled_features
         else:
             raise ValueError("必须至少启用 'use_frame' 或 'use_event' 其中之一。")

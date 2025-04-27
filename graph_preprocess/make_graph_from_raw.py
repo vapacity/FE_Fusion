@@ -1,0 +1,73 @@
+# -- coding: utf-8 --**
+# the dataset class for EV-Gait-3DGraph model
+
+
+import os
+import numpy as np
+import glob
+import scipy.io as sio
+import torch
+import torch.utils.data
+from torch_geometric.data import Data
+from torch.utils.data import Dataset
+import torch_geometric.transforms as T
+import os.path as osp
+
+
+
+
+class EV_Gait_3DGraph_Dataset(Dataset):
+    def __init__(self, root_list, transform=None, pre_transform=None):
+        if isinstance(root_list, str):
+            root_list = [root_list]
+        self.root_list = root_list
+        self.transform = transform
+        self.pre_transform = pre_transform
+
+        self._raw_paths = []
+        self._processed_paths = []
+        for root in root_list:
+            raw_files = glob.glob(os.path.join(root, "raw", "*.mat"))
+            self._raw_paths += raw_files
+            self._processed_paths += [
+                os.path.join(root, "processed", os.path.basename(f).replace(".mat", ".pt"))
+                for f in raw_files
+            ]
+        # if not os.path.exists(self._processed_paths[0]):
+        self.process()
+
+    def __len__(self):
+        return len(self._processed_paths)
+
+    def __getitem__(self, idx):
+        data = torch.load(self._processed_paths[idx])
+        if self.transform:
+            data = self.transform(data)
+        return data
+
+    def process(self):
+        for raw_path in self._raw_paths:
+            content = sio.loadmat(raw_path)
+            feature = torch.tensor(content["feature"])[:, 0:1].float()
+            edge_index = torch.tensor(np.array(content["edges"]).astype(np.int32), dtype=torch.long)
+            pos = torch.tensor(np.array(content["pseudo"]), dtype=torch.float32)
+
+            data = Data(x=feature, edge_index=edge_index, pos=pos)
+
+            if self.pre_transform is not None:
+                data = self.pre_transform(data)
+
+            saved_name = os.path.basename(raw_path).replace(".mat", ".pt")
+            processed_dir = raw_path.replace("raw", "processed").replace(os.path.basename(raw_path), "")
+            os.makedirs(processed_dir, exist_ok=True)
+            torch.save(data, os.path.join(processed_dir, saved_name))
+    
+
+if __name__ == "__main__":
+    dataset_base = "/root/autodl-tmp/processed_data"
+    dataset_dir = ["dt", "mn", "sr", "ss1", "ss2"]
+    train_data_aug = T.Compose([T.Cartesian(cat=False), T.RandomScale([0.96, 1]), T.RandomTranslate(0.001)])
+    dataset = EV_Gait_3DGraph_Dataset([os.path.join(dataset_base, d) for d in dataset_dir], transform=train_data_aug)
+    print(len(dataset))
+    data = dataset[0]
+    print(data)
