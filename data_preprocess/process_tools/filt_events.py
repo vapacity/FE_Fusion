@@ -1,6 +1,25 @@
 import os
 import numpy as np
 
+def filt_reprocess(directory_path):
+    original_events_path = os.path.join(directory_path, "event")
+    original_frames_path = os.path.join(directory_path, "frame")
+    original_bin_path = os.path.join(directory_path, "bin")
+    original_graph_path = os.path.join(directory_path, "processed")
+    # 以original_events_path为基准，删掉original_bin_path和original_graph_path里不在original_events_path里的文件
+    event_names = [filename.replace(".npy", "") for filename in os.listdir(original_events_path)]
+    bin_names = [filename.replace(".npy", "") for filename in os.listdir(original_bin_path)]
+    graph_names = [filename.replace(".pt", "") for filename in os.listdir(original_graph_path)]
+    # 删掉bin_names和graph_names里不在event_names里的文件
+    for bin_name in bin_names:
+        if bin_name not in event_names:
+            os.remove(os.path.join(original_bin_path, bin_name + ".npy"))
+    
+    for graph_name in graph_names:
+        if graph_name not in event_names:
+            os.remove(os.path.join(original_graph_path, graph_name + ".pt"))
+            
+
 def filt(directory_path, remaining_count):
     """
     筛选文件的函数:

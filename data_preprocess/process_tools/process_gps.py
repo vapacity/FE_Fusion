@@ -94,6 +94,6 @@ def process_gps(gps_file_name, file_name, bias):
     # 返回处理后的GPS数据
     return gps_data
 
-def process_all_gps():
+def write_all_gps():
     for index in range(len(file_name)):
         process_gps(gps_file_name[index],file_name[index],bias[index])

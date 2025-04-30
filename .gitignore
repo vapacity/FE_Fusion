@@ -1,3 +1,5 @@
 *.pyc
 result*/
 train/wandb/*
+whl/torch_cluster-1.6.0-cp38-cp38-linux_x86_64.whl
+whl/torch_scatter-2.0.9-cp38-cp38-linux_x86_64.whl

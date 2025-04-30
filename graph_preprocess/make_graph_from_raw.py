@@ -51,8 +51,11 @@ class EV_Gait_3DGraph_Dataset(Dataset):
             feature = torch.tensor(content["feature"])[:, 0:1].float()
             edge_index = torch.tensor(np.array(content["edges"]).astype(np.int32), dtype=torch.long)
             pos = torch.tensor(np.array(content["pseudo"]), dtype=torch.float32)
+            src, dst = edge_index[0], edge_index[1]
+            edge_attr = pos[dst] - pos[src] # 向量作为edge attr
 
-            data = Data(x=feature, edge_index=edge_index, pos=pos)
+
+            data = Data(x=feature, edge_index=edge_index, pos=pos, edge_attr=edge_attr)
 
             if self.pre_transform is not None:
                 data = self.pre_transform(data)

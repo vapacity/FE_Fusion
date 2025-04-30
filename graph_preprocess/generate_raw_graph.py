@@ -10,7 +10,7 @@ import sys
 from sklearn.cluster import MiniBatchKMeans
 from scipy.spatial import cKDTree
 from tqdm import tqdm
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool, cpu_count, Queue, Process
 
 
 def process_file(base_dir, file, max_points=2048):
@@ -33,6 +33,10 @@ def process_file(base_dir, file, max_points=2048):
     # 标准化时间戳（0 ~ 128）
     time_length = data[-1, 0]
     data[:, 0] = data[:, 0] / time_length * 128
+
+    # 把 H W 从 (346, 260) 变成 128*128
+    data[:, 1] = data[:, 1] / 346 * 128 # max 345
+    data[:, 2] = data[:, 2] / 260 * 128 # max 259
 
     # 获取 [x, y, t] 点云数据
     points = data[:, [1, 2, 0]]
@@ -139,21 +143,46 @@ def process_and_generate(base_dir, file, target_dir):
     except Exception as e:
         print(f"[ERROR] {file}: {e}")
 
+def Worker(input_queue: Queue):
+    while True:
+        item = input_queue.get()
+        if item == "STOP":
+            break
+        base_dir, file, target_dir = item
+        try:
+            process_and_generate(base_dir, file, target_dir)
+        except Exception as e:
+            print(f"Error: {e}")
+
 def main():
     # dt  mn  sr  ss1  ss2
-    dirs = ["dt", "mn", "sr", "ss1", "ss2"]
+    dirs = ["ss2", "dt", "mn", "sr", "ss1"]
     for dir in dirs:
         base_dir = "/root/autodl-tmp/processed_data/"+dir+"/bin"
         target_dir = "/root/autodl-tmp/processed_data/"+dir+"/raw"
         os.makedirs(target_dir, exist_ok=True)
+        MAX_WORKERS = 4
+        task_queue = Queue(maxsize=MAX_WORKERS) 
+        workers = []
+        for _ in range(MAX_WORKERS):
+            p = Process(target=Worker, args=(task_queue,))
+            p.start()
+            workers.append(p)
 
-        # 串行版本
         for file in tqdm(os.listdir(base_dir)):
-             process_and_generate(base_dir, file, target_dir)
+            task_queue.put((base_dir, file, target_dir))
 
-        # # 并行版本，用starmap实现
-        # with Pool(16) as pool:
-        #     pool.starmap(process_and_generate, [(base_dir, file, target_dir) for file in os.listdir(base_dir)])
+        for worker in workers:
+            task_queue.put("STOP")
+
+        for worker in workers:
+            worker.join()
+        
+
+        # # 串行版本
+        # for file in tqdm(os.listdir(base_dir)):
+        #      process_and_generate(base_dir, file, target_dir)
+
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from dataUtils import get_data_from_path, normalize_event_volume
 
 class DatabaseDataset(Dataset):
-    def __init__(self, database_dirs, transform=None, event_vpr=False, use_timestamps_from_gps=False, use_dift=False):
+    def __init__(self, database_dirs, transform=None, event_vpr=False, use_timestamps_from_gps=False, graph_as_frame=False):
         """
         Args:
             database_dirs (list): 数据库样本的文件夹路径列表。
@@ -19,21 +19,16 @@ class DatabaseDataset(Dataset):
         self.transform = transform
         self.use_event_vpr = event_vpr
         self.use_timestamps_from_gps = use_timestamps_from_gps
-
+        self.graph_as_frame = graph_as_frame
         # 获取所有数据库文件中的时间戳
         if self.use_timestamps_from_gps:
             self.database_timestamps = self._get_database_timestamps_from_GPS()
         else:
             self.database_timestamps = self._get_database_timestamps()
-        
-        if use_dift:
-            raise NotImplementedError("DIFT is not implemented in DatabaseDataset")
     
     def _get_database_timestamps_from_GPS(self):
         timestamps = set()
         for dir in self.database_dirs:
-            frame_dir = os.path.join(dir, "frame")
-            event_dir = os.path.join(dir, "event")
             interpolated_gps_path = os.path.join(dir, "interpolated_gps.txt")
             with open(interpolated_gps_path, 'r') as f:
                 for line in f:
@@ -47,20 +42,31 @@ class DatabaseDataset(Dataset):
         获取所有数据库中的时间戳。
         """
         timestamps = set()
+        timestamps_frame = set()
+        timestamps_graph = set()
         for dir in self.database_dirs:
             frame_dir = os.path.join(dir, "frame")
             event_dir = os.path.join(dir, "event")
-
-            # 获取帧文件夹中的时间戳
-            for frame_file in os.listdir(frame_dir):
-                if frame_file.endswith(".png"):
-                    timestamps.add(frame_file.replace(".png", ""))
-
-            # 获取事件体文件夹中的时间戳
             for event_file in os.listdir(event_dir):
                 if event_file.endswith(".npy"):
                     timestamps.add(event_file.replace(".npy", ""))
+            
+            # 获取图文件夹中的时间戳
+            if self.graph_as_frame:
+                graph_dir = os.path.join(dir, "processed")
+                for graph_file in os.listdir(graph_dir):
+                    if graph_file.endswith(".pt"):
+                        timestamps_graph.add(graph_file.replace(".pt", ""))
+            else:
+                frame_dir = os.path.join(dir, "frame")
+                for frame_file in os.listdir(frame_dir):
+                    if frame_file.endswith(".png"):
+                        timestamps_frame.add(frame_file.replace(".png", ""))
 
+        if self.graph_as_frame:
+            timestamps = timestamps.intersection(timestamps_graph)
+        else:
+            timestamps = timestamps.intersection(timestamps_frame)
         return sorted(list(timestamps))
 
     def _load_frame(self, dir, timestamp):
@@ -94,6 +100,23 @@ class DatabaseDataset(Dataset):
         event_volume = torch.nn.functional.interpolate(event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
         return event_volume
     
+    def _load_graph(self, dir, timestamp):
+        """
+        加载图数据
+        """
+        graph_path = os.path.join(dir, "processed", f"{timestamp}.pt")
+        graph = torch.load(graph_path)
+        return graph
+    
+    def check_all_data_exist(self, dir, timestamp):
+        frame_path = os.path.join(dir, "frame", f"{timestamp}.png")
+        event_path = os.path.join(dir, "event", f"{timestamp}.npy")
+        if self.graph_as_frame:
+            graph_path = os.path.join(dir, "processed", f"{timestamp}.pt")
+            return os.path.exists(frame_path) and os.path.exists(event_path) and os.path.exists(graph_path)
+        else:
+            return os.path.exists(frame_path) and os.path.exists(event_path)
+    
 
     def _load_event_bin(self, dir, timestamp):
         """
@@ -118,18 +141,18 @@ class DatabaseDataset(Dataset):
 
         # 在database_dirs中查找对应时间戳的样本
         for dir in self.database_dirs:
-            frame_path = os.path.join(dir, "frame", f"{timestamp}.png")
-            event_path = os.path.join(dir, "event", f"{timestamp}.npy")
-
-            
-            if os.path.exists(frame_path) and os.path.exists(event_path):
-                frame = self._load_frame(dir, timestamp)
+            if self.check_all_data_exist(dir, timestamp):
+                if self.graph_as_frame:
+                    graph = self._load_graph(dir, timestamp)
+                else:
+                    frame = self._load_frame(dir, timestamp)
                 if self.use_event_vpr:
                     event_volume = self._load_event_bin(dir, timestamp)
                 else:
                     event_volume = self._load_event_volume(dir, timestamp)
-                if self.use_timestamps_from_gps:
-                    return frame, event_volume, timestamp
+
+                if self.graph_as_frame:
+                    return graph, event_volume, timestamp
                 else:
                     return frame, event_volume, timestamp
 

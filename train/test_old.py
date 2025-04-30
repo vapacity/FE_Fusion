@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from functools import partial
 
-from models import FE_Net, EST_Net
+from models import EST_Net
 from models.DIFT_Net import DiftNet
 from dataloader.queryDataset import QueryDataset
 from dataloader.databaseDataset import DatabaseDataset
@@ -19,6 +19,8 @@ from test_Recall_utils import recall_at_n_with_distance
 from net import Net
 import yaml
 import time
+
+from train.models import FE_Main_Net
 
 def wait_for_model(model_path, timeout=1000):
     start_time = time.time()  # 记录开始时间

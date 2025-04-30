@@ -1,11 +1,11 @@
 import os
 from process_tools.process_event import process_event_to_volume_and_bin
 from process_tools.process_frame import process_frame
-from process_tools.process_gps import process_all_gps
+from process_tools.process_gps import write_all_gps
 from process_tools.process_triplet import find_triplet_samples
-from process_tools.process_interpolated_gps import interpolate_gps_data
-from process_tools.process_timestamp import get_index
-from process_tools.filt_events import filt
+from process_tools.process_interpolated_gps import interpolate_gps_data_from_timestamp
+from process_tools.process_timestamp import write_timestamp_from_dir
+from process_tools.filt_events import filt, filt_reprocess
 dataset = {
     'ss1': 'dvs_vpr_2020-04-21-17-03-03',
     'ss2': 'dvs_vpr_2020-04-22-17-24-21',
@@ -45,7 +45,7 @@ output_file_path = '/root/autodl-tmp/processed_data/'
 #         print(f"Timestamp for {key} already generated. Skipping...")
 
 
-# # 对每个数据集的event进行预处理（基于时间戳生成事件数据）
+# 对每个数据集的event进行预处理（基于时间戳生成事件数据）
 # print("processing events")
 # for key, name in dataset.items():
 #     bag_file = f"{input_file_path}{name}.bag"
@@ -59,31 +59,29 @@ output_file_path = '/root/autodl-tmp/processed_data/'
 #     else:
 #         print(f"Event processing for {key} already done. Skipping...")
 
-# print("filtering events and frames")
-# for key, name in dataset.items():   # ss1, ss2
-#     filt(f"{output_file_path}{key}",remaining_count[key])
+print("filtering events and frames")
+for key, name in dataset.items():   # ss1, ss2
+    filt_reprocess(f"{output_file_path}{key}")
 
-# # 对每个数据集的timestamp进行预处理（提取时间戳）
-# print("processing timestamp again for filtered")
-# for key, name in dataset.items():
-#     frame_path = f"{output_file_path}{key}/frame/"
-#     output_file = f"{output_file_path}{key}/timestamp.txt"
-#     get_index(frame_path, output_file)
+# 对每个数据集的timestamp进行预处理（提取时间戳）
+print("processing timestamp again for filtered")
+for key, name in dataset.items():
+    frame_dir = f"{output_file_path}{key}/frame/"
+    graph_processed_dir = f"{output_file_path}{key}/processed/"
+    output_file = f"{output_file_path}{key}/timestamp.txt"
+    write_timestamp_from_dir(frame_dir, graph_processed_dir, output_file)
         
-# # GPS信息的处理
-# print("processing gps")
-# process_all_gps()
+# GPS信息的处理
+print("processing gps")
+write_all_gps()
 
-# # 基于时间戳对GPS数据进行插值
-# print("interpolating gps")
-# for key, name in dataset.items():
-#     timestamp_file = f"{output_file_path}{key}/timestamp.txt"
-#     gps_file = f"{output_file_path}{key}/gps.txt"
-#     interpolated_gps_file = f"{output_file_path}{key}/interpolated_gps.txt"
-#     if not os.path.exists(interpolated_gps_file):  # 检查插值文件是否已存在
-#         interpolate_gps_data(timestamp_file, gps_file, interpolated_gps_file)
-#     else:
-#         print(f"Interpolated GPS for {key} already exists. Skipping...")
+# 基于时间戳对GPS数据进行插值
+print("interpolating gps")
+for key, name in dataset.items():
+    timestamp_file = f"{output_file_path}{key}/timestamp.txt"
+    gps_file = f"{output_file_path}{key}/gps.txt"
+    interpolated_gps_file = f"{output_file_path}{key}/interpolated_gps.txt"
+    interpolate_gps_data_from_timestamp(timestamp_file, gps_file, interpolated_gps_file)
 
 # 查找三元组用于训练
 query_gps_paths = [f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment1 train
@@ -113,10 +111,4 @@ for idx, (query_gps_path, db_paths) in enumerate(zip(query_gps_paths, database_g
     
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)  # 如果不存在则创建
-        
-    # 检查文件是否已经存在，如果不存在则进行处理
-    if not os.path.exists(save_file):  # 检查文件是否已经存在
-        # 调用 find_triplet_samples 函数，传入查询GPS路径和数据库路径，保存三元组
-        find_triplet_samples(query_gps_path, db_paths, save_file)
-    else:
-        print(f"Triplet processing for experiment {idx} already done. Skipping...")
+    find_triplet_samples(query_gps_path, db_paths, save_file)

@@ -24,7 +24,7 @@ file_name=[
 
 
         
-def interpolate_gps_data(timestamp_file, gps_file_path, interpolated_gps_path):
+def interpolate_gps_data_from_timestamp(timestamp_file, gps_file_path, interpolated_gps_path):
     gps_data = read_gps_data(gps_file_path)
     gps_timestamps = gps_data[:, 2]
     timestamps = read_timestamp(timestamp_file)
