@@ -32,7 +32,7 @@ def process_file(base_dir, file):
 
     # 标准化时间戳（0 ~ 10）
     time_length = data[-1, 0]   # 最大时间戳
-    eps = 1e-6  # 避免达到上界
+    eps = 0.001 + 1e-6  # 避免达到上界
 
     data[:, 0] = np.clip(data[:, 0] / time_length * 64, 0.0, 64.0 - eps)
     data[:, 1] = np.clip(data[:, 1] / 346 * 256, 0.0, 256.0 - eps)

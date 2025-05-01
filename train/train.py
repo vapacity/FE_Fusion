@@ -53,11 +53,10 @@ def parse_args():
     parser.add_argument('--num_epochs', type=int, default=200, help="num_epochs")
     parser.add_argument('--batch_size', type=int, default=4, help="batch_size")
     parser.add_argument('--test_batch_factor', type=int, default=4, help="test_batch_factor")
-    parser.add_argument('--load_model', type=str, default=None, help="load_model")
     parser.add_argument('--disable_wandb', action='store_true', help="Disable wandb logging")
     parser.add_argument('--num_workers', type=int, default=16, help="num_workers")
-    parser.add_argument('--disable_test', action='store_true', help="Use test")
-
+    parser.add_argument('--from_existing_weight_timestamp', type=str, default=None, help="train_from_exist_weight")
+    parser.add_argument('--resume_wandb_run', type=str, default=None, help="Resume training from a specific wandb run ID")
     return parser.parse_args()
 
 
@@ -66,7 +65,11 @@ if __name__ == "__main__":
     args = parse_args()
     seed = 42
     set_seed(seed)
-    current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+
+    if args.from_existing_weight_timestamp:
+        current_time = args.from_existing_weight_timestamp
+    else:
+        current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     if args.use_frame and args.use_event:
         current_time = current_time + "_FEFusion"
     elif args.use_frame:
@@ -77,19 +80,26 @@ if __name__ == "__main__":
 
     # Initialize wandb
     if not args.disable_wandb:
-        wandb.init(
-            project=f"fe-fusion-{args.experiment_name}",
-            name=f"fe-fusion_graph_as_frame-originalGCN-nohalve-{current_time}",
-        config={
-            "use_frame": args.use_frame,
-            "use_event": args.use_event,
-            "event_vpr": args.event_vpr,
-            "graph_as_frame": args.graph_as_frame,
-            "experiment_name": args.experiment_name,
-            "num_epochs": args.num_epochs,
-            "batch_size": args.batch_size
-        }
-    )
+        if args.resume_wandb_run:
+            wandb.init(
+                project=f"fe-fusion-{args.experiment_name}",
+                id=args.resume_wandb_run,
+                resume="must"
+            )
+        else:
+            wandb.init(
+                project=f"fe-fusion-{args.experiment_name}",
+                name=f"fe-fusion_graph_as_frame-originalGCN-nohalve-{current_time}",
+                config={
+                    "use_frame": args.use_frame,
+                    "use_event": args.use_event,
+                    "event_vpr": args.event_vpr,
+                    "graph_as_frame": args.graph_as_frame,
+                    "experiment_name": args.experiment_name,
+                    "num_epochs": args.num_epochs,
+                    "batch_size": args.batch_size
+                }
+            )
 
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
@@ -99,7 +109,7 @@ if __name__ == "__main__":
     def halve_t(data):
         data.pos[:, 0] /= 2
         return data
-    graph_transform_train =  T.Compose([T.Cartesian(cat=False), T.RandomScale([0.96, 1]), T.RandomTranslate(0.001)])
+    graph_transform_train =  T.Compose([T.Cartesian(cat=False), T.RandomScale([0.96, 1]), T.RandomTranslate(0.001)])    # 这个需要再处理数据时处理下，防止万一越界
     graph_transform_test =  T.Compose([T.Cartesian(cat=False), T.RandomScale([0.99999, 1])])
 
     processed_data_path = '/root/autodl-tmp/processed_data/'
@@ -184,8 +194,18 @@ if __name__ == "__main__":
         model = FE_Main_Net.MainNet(channel_sizes, use_frame=False, event_vpr=args.event_vpr).cuda()  # Only events
     else:
         model = FE_Main_Net.MainNet(channel_sizes).cuda()  # Both frames and events
-    if args.load_model:
-        model.load_state_dict(torch.load(args.load_model))
+    if args.from_existing_weight_timestamp:
+        max_trained_epoch = 0
+        if os.path.exists(save_dir):
+            for file in os.listdir(save_dir):
+                if file.endswith(".pth"):
+                    epoch = int(file.split("_epoch_")[-1].replace(".pth", ""))
+                    max_trained_epoch = max(max_trained_epoch, epoch)
+        if max_trained_epoch == 0:
+            raise ValueError("No trained model found")
+        else:
+            print(f"Load model from {os.path.join(save_dir, f'model_{"eventVPR" if args.event_vpr else "FEFusion"}_epoch_{max_trained_epoch}.pth')}")
+            model.load_state_dict(torch.load(os.path.join(save_dir, f'model_{"eventVPR" if args.event_vpr else "FEFusion"}_epoch_{max_trained_epoch}.pth')))
 
     ######################################### train parameters #########################################
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -220,14 +240,14 @@ if __name__ == "__main__":
     ######################################### main loop #########################################
     for epoch in range(num_epochs):
         model_path = os.path.join(save_dir, f'model_{"eventVPR" if args.event_vpr else "FEFusion"}_epoch_{epoch+1}.pth')
-
-
+        if args.from_existing_weight_timestamp and epoch < max_trained_epoch:   # epoch 0 对应 权重 1，所以就是从权重+1开始
+            continue
 
         ######################################### test #########################################
         model.eval()
         database_features, timestamps_list = update_test_features(model, database_loader)
         database_features_dict = {timestamp: feature for timestamp, feature in zip(timestamps_list, database_features)}
-        if epoch >= 1 and not args.disable_test:
+        if epoch >= 1:
             test_database_features, test_timestamps_list = update_test_features(model, test_database_loader)
             test_train_database_features, test_train_timestamps_list = update_test_features(model, test_train_database_loader)
 
