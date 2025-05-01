@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from dataUtils import get_data_from_path, normalize_event_volume
 
 class DatabaseDataset(Dataset):
-    def __init__(self, database_dirs, transform=None, event_vpr=False, use_timestamps_from_gps=False, graph_as_frame=False):
+    def __init__(self, database_dirs, transform=None, graph_transform=None, event_vpr=False, use_timestamps_from_gps=False, graph_as_frame=False):
         """
         Args:
             database_dirs (list): 数据库样本的文件夹路径列表。
@@ -17,6 +17,7 @@ class DatabaseDataset(Dataset):
         """
         self.database_dirs = database_dirs
         self.transform = transform
+        self.graph_transform = graph_transform
         self.use_event_vpr = event_vpr
         self.use_timestamps_from_gps = use_timestamps_from_gps
         self.graph_as_frame = graph_as_frame
@@ -106,6 +107,8 @@ class DatabaseDataset(Dataset):
         """
         graph_path = os.path.join(dir, "processed", f"{timestamp}.pt")
         graph = torch.load(graph_path)
+        if self.graph_transform:
+            graph = self.graph_transform(graph)
         return graph
     
     def check_all_data_exist(self, dir, timestamp):

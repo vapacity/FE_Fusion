@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from dataUtils import get_data_from_path, normalize_event_volume
 import copy
 class QueryDataset(Dataset):
-    def __init__(self, txt_file, query_dir, database_dirs, transform=None, event_vpr=False, graph_as_frame=False):
+    def __init__(self, txt_file, query_dir, database_dirs, transform=None, graph_transform=None, event_vpr=False, graph_as_frame=False):
         """
         Args:
             txt_file (str): 包含三元组信息的txt文件路径。
@@ -20,6 +20,7 @@ class QueryDataset(Dataset):
         self.query_dir = query_dir
         self.database_dirs = database_dirs
         self.transform = transform
+        self.graph_transform = graph_transform
         self.event_vpr = event_vpr
         self.graph_as_frame = graph_as_frame
         
@@ -120,6 +121,8 @@ class QueryDataset(Dataset):
         """
         graph_path = os.path.join(dir, "processed", f"{timestamp}.pt")
         data = torch.load(graph_path)
+        if self.graph_transform:
+            data = self.graph_transform(data)
         return data
 
     def __len__(self):
@@ -148,6 +151,8 @@ class QueryDataset(Dataset):
                 if pos_graph_path is None:
                     raise FileNotFoundError(f"Positive graph path not found for timestamp {pos_timestamp}")
                 pos_graph = torch.load(pos_graph_path)
+                if self.graph_transform:
+                    pos_graph = self.graph_transform(pos_graph)
                 pos_graphs_dict[pos_timestamp] = pos_graph
             else:
                 pos_frame_path = self._find_file_in_database(pos_timestamp, "frame")
@@ -159,7 +164,6 @@ class QueryDataset(Dataset):
                     pos_frame = self.transform(pos_frame)
                 pos_frames_dict[pos_timestamp] = pos_frame
 
-                pos_frames_dict[pos_timestamp] = pos_frame_path
             if not self.event_vpr:
                 pos_event_path = self._find_file_in_database(pos_timestamp, "event")
             else:
@@ -191,6 +195,8 @@ class QueryDataset(Dataset):
                 if neg_graph_path is None:
                     raise FileNotFoundError(f"Negative sample not found for timestamp {neg_timestamp}")
                 neg_graph = torch.load(neg_graph_path)
+                if self.graph_transform:
+                    neg_graph = self.graph_transform(neg_graph)
                 neg_graphs_dict[neg_timestamp] = neg_graph
             else:
                 if neg_frame_path is None:

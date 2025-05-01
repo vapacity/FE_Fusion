@@ -21,6 +21,7 @@ from torch.nn import CosineSimilarity
 import random
 import numpy as np
 from models import FE_Main_Net
+import torch_geometric.transforms as T
 
 
 def generate_paths(exp_item, processed_data_path, experiment_item):
@@ -55,6 +56,7 @@ def parse_args():
     parser.add_argument('--load_model', type=str, default=None, help="load_model")
     parser.add_argument('--disable_wandb', action='store_true', help="Disable wandb logging")
     parser.add_argument('--num_workers', type=int, default=16, help="num_workers")
+    parser.add_argument('--disable_test', action='store_true', help="Use test")
 
     return parser.parse_args()
 
@@ -77,7 +79,7 @@ if __name__ == "__main__":
     if not args.disable_wandb:
         wandb.init(
             project=f"fe-fusion-{args.experiment_name}",
-            name=f"fe-fusion-graph-as-frame-{current_time}",
+            name=f"fe-fusion_graph_as_frame-originalGCN-nohalve-{current_time}",
         config={
             "use_frame": args.use_frame,
             "use_event": args.use_event,
@@ -93,6 +95,12 @@ if __name__ == "__main__":
         transforms.Resize((256, 256)),
         transforms.ToTensor()
     ])
+
+    def halve_t(data):
+        data.pos[:, 0] /= 2
+        return data
+    graph_transform_train =  T.Compose([T.Cartesian(cat=False), T.RandomScale([0.96, 1]), T.RandomTranslate(0.001)])
+    graph_transform_test =  T.Compose([T.Cartesian(cat=False), T.RandomScale([0.99999, 1])])
 
     processed_data_path = '/root/autodl-tmp/processed_data/'
     save_path = '/root/autodl-tmp/FE_Fusion/runs/'
@@ -146,12 +154,12 @@ if __name__ == "__main__":
     channel_sizes = [128, 256, 512]
     global_num_negatives = 12
 
-    dataset = QueryDataset(triplet_file, query_dir, database_dirs, transform, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame)
-    databaseDataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame)    # train 时用不到gps信息，用gps的话可能会少一些数据
-    test_query_dataset = DatabaseDataset(database_dirs=[test_query_dir],transform=transform, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
-    test_database_dataset = DatabaseDataset(database_dirs=test_database_dirs,transform=transform, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
-    test_train_query_dataset =  DatabaseDataset(database_dirs=[query_dir],transform=transform, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
-    test_train_database_dataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
+    dataset = QueryDataset(triplet_file, query_dir, database_dirs, transform, graph_transform_train, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame)
+    databaseDataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame)    # train 时用不到gps信息，用gps的话可能会少一些数据
+    test_query_dataset = DatabaseDataset(database_dirs=[test_query_dir],transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
+    test_database_dataset = DatabaseDataset(database_dirs=test_database_dirs,transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
+    test_train_query_dataset =  DatabaseDataset(database_dirs=[query_dir],transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
+    test_train_database_dataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
 
     if not args.event_vpr:
         dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.num_workers, collate_fn=partial(collate_query_normal, graph_as_frame=args.graph_as_frame))
@@ -219,7 +227,7 @@ if __name__ == "__main__":
         model.eval()
         database_features, timestamps_list = update_test_features(model, database_loader)
         database_features_dict = {timestamp: feature for timestamp, feature in zip(timestamps_list, database_features)}
-        if epoch >= 1:
+        if epoch >= 1 and not args.disable_test:
             test_database_features, test_timestamps_list = update_test_features(model, test_database_loader)
             test_train_database_features, test_train_timestamps_list = update_test_features(model, test_train_database_loader)
 

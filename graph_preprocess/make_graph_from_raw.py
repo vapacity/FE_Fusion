@@ -12,17 +12,28 @@ from torch_geometric.data import Data
 from torch.utils.data import Dataset
 import torch_geometric.transforms as T
 import os.path as osp
+from torch_geometric.nn.pool import radius_graph
+from torch_geometric.transforms import FixedPoints
+from tqdm import tqdm
 
-
+def sub_sampling(data, n_samples=4096, sub_sample=True) -> Data:
+    if sub_sample:
+        sampler = FixedPoints(num=n_samples, allow_duplicates=False, replace=False)
+        return sampler(data)
+    else:
+        sample_idx = np.arange(n_samples)
+        for key, item in data:
+            if torch.is_tensor(item) and item.size(0) != 1:
+                data[key] = item[sample_idx]
+        return data
 
 
 class EV_Gait_3DGraph_Dataset(Dataset):
-    def __init__(self, root_list, transform=None, pre_transform=None):
+    def __init__(self, root_list, transform=None):
         if isinstance(root_list, str):
             root_list = [root_list]
         self.root_list = root_list
         self.transform = transform
-        self.pre_transform = pre_transform
 
         self._raw_paths = []
         self._processed_paths = []
@@ -46,20 +57,13 @@ class EV_Gait_3DGraph_Dataset(Dataset):
         return data
 
     def process(self):
-        for raw_path in self._raw_paths:
+        for idx, raw_path in enumerate(tqdm(self._raw_paths)):
             content = sio.loadmat(raw_path)
             feature = torch.tensor(content["feature"])[:, 0:1].float()
-            edge_index = torch.tensor(np.array(content["edges"]).astype(np.int32), dtype=torch.long)
             pos = torch.tensor(np.array(content["pseudo"]), dtype=torch.float32)
-            src, dst = edge_index[0], edge_index[1]
-            edge_attr = pos[dst] - pos[src] # 向量作为edge attr
-
-
-            data = Data(x=feature, edge_index=edge_index, pos=pos, edge_attr=edge_attr)
-
-            if self.pre_transform is not None:
-                data = self.pre_transform(data)
-
+            data = Data(x=feature, pos=pos)
+            data = sub_sampling(data, n_samples=2048, sub_sample=True)
+            data.edge_index = radius_graph(data.pos, r=10, max_num_neighbors=12)
             saved_name = os.path.basename(raw_path).replace(".mat", ".pt")
             processed_dir = raw_path.replace("raw", "processed").replace(os.path.basename(raw_path), "")
             os.makedirs(processed_dir, exist_ok=True)
@@ -69,8 +73,7 @@ class EV_Gait_3DGraph_Dataset(Dataset):
 if __name__ == "__main__":
     dataset_base = "/root/autodl-tmp/processed_data"
     dataset_dir = ["dt", "mn", "sr", "ss1", "ss2"]
-    train_data_aug = T.Compose([T.Cartesian(cat=False), T.RandomScale([0.96, 1]), T.RandomTranslate(0.001)])
-    dataset = EV_Gait_3DGraph_Dataset([os.path.join(dataset_base, d) for d in dataset_dir], transform=train_data_aug)
+    dataset = EV_Gait_3DGraph_Dataset([os.path.join(dataset_base, d) for d in dataset_dir])
     print(len(dataset))
     data = dataset[0]
     print(data)

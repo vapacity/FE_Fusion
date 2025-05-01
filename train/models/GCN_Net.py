@@ -5,25 +5,42 @@ import torch
 
 import torch.nn.functional as F
 import torch_geometric.transforms as T
+import torch_geometric
 from torch_geometric.nn import voxel_grid, max_pool, max_pool_x, GMMConv
 import os
 import sys
 from models.MF_Net import NetVLAD
 from torch_scatter import scatter_max
+from torch_geometric.nn import global_max_pool
 
-class ChannelFCBlock(torch.nn.Module):
-    def __init__(self, in_channels=512, hidden_dim=1024, out_channels=256):
-        super(ChannelFCBlock, self).__init__()
-        self.block = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels, hidden_dim, kernel_size=1),  # 相当于 fc1
-            torch.nn.BatchNorm2d(hidden_dim),
-            torch.nn.Dropout(),
-            torch.nn.ELU(inplace=True),
-            torch.nn.Conv2d(hidden_dim, out_channels, kernel_size=1)  # 相当于 fc2
-        )
+def custom_voxel_grid(pos, voxel_size, batch=None):
+    """
+    自定义 voxel grid 方法，支持不等尺寸的 voxel（各轴可设定不同尺寸）。
 
-    def forward(self, x):
-        return self.block(x)
+    参数:
+        pos (Tensor): 点坐标，形状为 (N, 3)
+        voxel_size (Tensor or list): voxel 的 x, y, z 尺寸，例如 [36, 36, 20]
+        batch (Tensor, optional): 每个点的 batch 编号，形状为 (N,)
+
+    返回:
+        cluster (Tensor): 每个点所属的 voxel 编号，形状为 (N,)
+    """
+
+    # 转换 voxel_size 为张量
+    voxel_size = torch.tensor(voxel_size, dtype=pos.dtype, device=pos.device)
+    
+    # 计算每个点在哪个 voxel（浮点 -> floor -> 整数 voxel 索引）
+    voxel_indices = torch.floor(pos / voxel_size).long()  # (N, 3)
+    
+    if batch is not None:
+        # 添加 batch 维度，确保每个 batch 单独 voxel 编号
+        voxel_indices = torch.cat([batch.view(-1, 1), voxel_indices], dim=1)  # (N, 4)
+    
+    # 使用 unique 返回每个 voxel 的唯一编号
+    unique_voxels, cluster = torch.unique(voxel_indices, return_inverse=True, dim=0)
+    
+    return cluster, unique_voxels
+
 
 
 class GraphResidualBlock(torch.nn.Module):
@@ -45,70 +62,26 @@ class GraphResidualBlock(torch.nn.Module):
 
         return data
 
-def spatial_pool_NxN_scatter(data, N=16):
-    pos = data.pos[:, :2]  # 只取XY
-    batch = data.batch     # [N]
-    x = data.x             # [N, C]
-    B = int(batch.max()) + 1
-    N_pts, C = x.size()
-
-    # 归一化每个batch的pos到 [0, 1]
-    batch_min = scatter_max(-pos, batch, dim=0)[0] * (-1)
-    batch_max = scatter_max(pos, batch, dim=0)[0]
-
-    batch_min = batch_min[batch]
-    batch_max = batch_max[batch]
-
-    norm_pos = (pos - batch_min) / (batch_max - batch_min + 1e-6)
-
-    # 网格划分（N x N）
-    grid_idx = (norm_pos * N).long().clamp(max=N - 1)
-    cluster_id = grid_idx[:, 0] * N + grid_idx[:, 1]  # [0, N*N-1]
-
-    final_cluster = batch * (N * N) + cluster_id
-
-    # 聚合
-    pooled, _ = scatter_max(x, final_cluster, dim=0, dim_size=B * N * N)  # [B*N*N, C]
-
-    # reshape: [B, N*N, C] → [B, C, N, N]
-    pooled = pooled.view(B, N * N, C).transpose(1, 2).view(B, C, N, N)
-
-    # 替换掉 -inf（如果有空块）
-    pooled = torch.nan_to_num(pooled, nan=0.0, neginf=0.0, posinf=0.0)
-
-    return pooled
-
 class GCN_Net(torch.nn.Module):
     def __init__(self):
         super(GCN_Net, self).__init__()
         self.extractor = GCN_Extractor()
-        # self.channel_fc_block = ChannelFCBlock(out_channels=256)
-        # self.VLAD = NetVLAD(dim=256)
-        self.fc = torch.nn.Linear(8 * 512, 2048)
 
     def forward(self, data):
         x = self.extractor(data)
-        x = x[0].view(-1, self.fc.weight.size(1))   # batch_size * 4096
-        x = self.fc(x)
-        x = F.normalize(x, p=2, dim=1)
-        
-        # x = self.channel_fc_block(x)
-        # x = self.VLAD(x)
         return x
 
-class GCN_Extractor(torch.nn.Module):
+class GCN_Extractor_v2(torch.nn.Module):
     def __init__(self):
-        super(GCN_Extractor, self).__init__()
+        super(GCN_Extractor_v2, self).__init__()
         self.conv1 = GMMConv(1, 64, dim=3, kernel_size=5)
         self.bn1 = torch.nn.BatchNorm1d(64)
         self.block1 = GraphResidualBlock(64, 128)
         self.block2 = GraphResidualBlock(128, 256)
         self.block3 = GraphResidualBlock(256, 512)
-
-        # self.fc1 = torch.nn.Linear(8 * 512, 1024)
-        # self.bn = torch.nn.BatchNorm1d(1024)
-        # self.drop_out = torch.nn.Dropout()
-        # self.fc2 = torch.nn.Linear(1024, 256)
+        self.input_dim = 512
+        self.fc = torch.nn.Linear(self.input_dim, 256)
+        self.VLAD = NetVLAD(dim=256)
 
     def forward(self, data):
         conv1_output = self.conv1(data.x, data.edge_index, data.edge_attr)  # 相当于每个节点做 1*1 升维
@@ -125,9 +98,50 @@ class GCN_Extractor(torch.nn.Module):
         data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
 
         data = self.block3(data)
-        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=64)
-        # x = spatial_pool_NxN_scatter(data, N=16)
-        x = max_pool_x(cluster, data.x, data.batch, size=8)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=32)      
+        x = max_pool_x(cluster, data.x, data.batch, size=64)
+        # 取0是因为返回值为(x, None)
+        # x[0] size为 B x 64, 512
+        batch_size = data.batch.max().item() + 1
+        x = x[0].view(batch_size, 64, 512)  # B x 64 x 512
+        x = self.fc(x)                      # B x 64 x 256
+        x = x.permute(0, 2, 1).view(batch_size, 256, 8, 8)  # B x 256 x 8 x 8
+        x = self.VLAD(x)
+        return x
 
+class GCN_Extractor(torch.nn.Module):
+    def __init__(self):
+        super(GCN_Extractor, self).__init__()
+        self.conv1 = GMMConv(1, 64, dim=3, kernel_size=5)
+        self.bn1 = torch.nn.BatchNorm1d(64)
+        self.block1 = GraphResidualBlock(64, 128)
+        self.block2 = GraphResidualBlock(128, 256)
+        self.block3 = GraphResidualBlock(256, 512)
+        self.input_dim = 16 * 512
+        self.fc = torch.nn.Linear(self.input_dim, 4096)
 
+    def forward(self, data):
+        conv1_output = self.conv1(data.x, data.edge_index, data.edge_attr)  # 相当于每个节点做 1*1 升维
+        data.x = F.elu(self.bn1(conv1_output))
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=4)    # 4*4*4
+        data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
+
+        data = self.block1(data)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=6)    # 6*6*6
+        data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
+
+        data = self.block2(data)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=24)   # 24*24*24
+        data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
+
+        data = self.block3(data)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=64)   # 260 / 64 = 4, 360 
+        # test_x = max_pool(cluster, data, transform=T.Cartesian(cat=False))
+        # breakpoint()
+
+        x = max_pool_x(cluster, data.x, data.batch, size=16) # 聚类成16个类 16*512
+        # 取0是因为返回值为(x, None)
+        x = x[0].view(-1, self.input_dim)
+        x = self.fc(x)  # B 4096 (8192->4096)
+        x = F.normalize(x, p=2, dim=1)
         return x

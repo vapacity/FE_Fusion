@@ -2,7 +2,7 @@ import os
 import torch
 from torch.nn import CosineSimilarity
 from geopy.distance import geodesic
-
+from tqdm import tqdm
 
 # 定义 Recall 计算函数
 # 这里的query_loader和train的不同
@@ -14,7 +14,7 @@ def recall_at_n_with_distance(query_loader, database_features, query_gps_data, d
 
     with torch.no_grad():
         model.eval()
-        for frames, event_volumes, timestamp_batch in query_loader:
+        for test_batch_idx, (frames, event_volumes, timestamp_batch) in tqdm(enumerate(query_loader), desc="Calculating Cosine Similarity"):
             frames, event_volumes = frames.cuda(), event_volumes.cuda()
             query_features = model(frames, event_volumes)
             cos = CosineSimilarity(dim=2, eps=1e-8)
@@ -34,4 +34,5 @@ def recall_at_n_with_distance(query_loader, database_features, query_gps_data, d
             total_queries += query_features.size(0)
 
     recall = correct_count / total_queries
+    torch.cuda.empty_cache()
     return recall
