@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from dataUtils import get_data_from_path, normalize_event_volume
 import copy
 class QueryDataset(Dataset):
-    def __init__(self, txt_file, query_dir, database_dirs, transform=None, graph_transform=None, event_vpr=False, graph_as_frame=False):
+    def __init__(self, txt_file, query_dir, database_dirs, transform=None, graph_transform=None, event_vpr_as_frame=False, graph_as_frame=False):
         """
         Args:
             txt_file (str): 包含三元组信息的txt文件路径。
@@ -21,7 +21,7 @@ class QueryDataset(Dataset):
         self.database_dirs = database_dirs
         self.transform = transform
         self.graph_transform = graph_transform
-        self.event_vpr = event_vpr
+        self.event_vpr_as_frame = event_vpr_as_frame
         self.graph_as_frame = graph_as_frame
         
         # 解析txt文件，获取query, positives, negatives的时间戳
@@ -100,7 +100,7 @@ class QueryDataset(Dataset):
         event_volume = torch.nn.functional.interpolate(event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
         return event_volume
     
-    def _load_event_bin(self, dir, timestamp):
+    def _load_event_bin_vpr(self, dir, timestamp):
         """
         加载事件体素网格的bin（用于Event-VPR）
         Args:
@@ -132,17 +132,20 @@ class QueryDataset(Dataset):
         query_timestamp, pos_timestamps, neg_timestamps = self.triplets[idx]
 
         # 加载query样本（query_dir）
-        query_frame = self._load_frame(self.query_dir, query_timestamp)
-        if not self.event_vpr:
-            query_event_volume = self._load_event_volume(self.query_dir, query_timestamp)
-        else:
-            query_event_volume = self._load_event_bin(self.query_dir, query_timestamp)
+        query_event_volume = self._load_event_volume(self.query_dir, query_timestamp)
+
         if self.graph_as_frame:
             query_graph = self._load_graph(self.query_dir, query_timestamp)
+        elif self.event_vpr_as_frame:
+            query_bin_vpr = self._load_event_bin_vpr(self.query_dir, query_timestamp)
+        else:
+            query_frame = self._load_frame(self.query_dir, query_timestamp)
+            
 
         # 加载正样本，首先在database_dirs中查找正样本
         pos_frames_dict = {}
         pos_graphs_dict = {}
+        pos_bin_vpr_dict = {}
         pos_event_volumes_dict = {}
 
         for pos_timestamp in pos_timestamps:
@@ -154,43 +157,43 @@ class QueryDataset(Dataset):
                 if self.graph_transform:
                     pos_graph = self.graph_transform(pos_graph)
                 pos_graphs_dict[pos_timestamp] = pos_graph
+            elif self.event_vpr_as_frame:
+                pos_bin_vpr_path = self._find_file_in_database(pos_timestamp, "bin")
+                if pos_bin_vpr_path is None:
+                    raise FileNotFoundError(f"Positive bin vpr path not found for timestamp {pos_timestamp}")
+                pos_bin_vpr = get_data_from_path(pos_bin_vpr_path)
+                pos_bin_vpr_dict[pos_timestamp] = pos_bin_vpr
             else:
                 pos_frame_path = self._find_file_in_database(pos_timestamp, "frame")
                 if pos_frame_path is None:
                     raise FileNotFoundError(f"Positive frame path not found for timestamp {pos_timestamp}")
-                
                 pos_frame = Image.open(pos_frame_path).convert('L')
                 if self.transform:
                     pos_frame = self.transform(pos_frame)
                 pos_frames_dict[pos_timestamp] = pos_frame
 
-            if not self.event_vpr:
-                pos_event_path = self._find_file_in_database(pos_timestamp, "event")
-            else:
-                pos_event_path = self._find_file_in_database(pos_timestamp, "bin")
+
+            pos_event_path = self._find_file_in_database(pos_timestamp, "event")
             if pos_event_path is None:
                 raise FileNotFoundError(f"Positive event path not found for timestamp {pos_timestamp}")
-
-            
-
-            if not self.event_vpr:
-                pos_event_volume = np.load(pos_event_path)
-                pos_event_volume = torch.tensor(pos_event_volume).float()
-                pos_event_volume = normalize_event_volume(pos_event_volume)
-                pos_event_volume = torch.nn.functional.interpolate(pos_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
-                pos_event_volumes_dict[pos_timestamp] = pos_event_volume
-            else:
-                data = get_data_from_path(pos_event_path)
-                pos_event_volumes_dict[pos_timestamp] = data
+            pos_event_volume = np.load(pos_event_path)
+            pos_event_volume = torch.tensor(pos_event_volume).float()
+            pos_event_volume = normalize_event_volume(pos_event_volume)
+            pos_event_volume = torch.nn.functional.interpolate(pos_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
+            pos_event_volumes_dict[pos_timestamp] = pos_event_volume
 
         # 加载负样本，在database_dirs中查找每一个负样本
         neg_frames_dict = {}
         neg_graphs_dict = {}
+        neg_bin_vpr_dict = {}
         neg_event_volumes_dict = {}
 
         for neg_timestamp in neg_timestamps:
             neg_graph_path = self._find_file_in_database(neg_timestamp, "processed")
+            neg_bin_vpr_path = self._find_file_in_database(neg_timestamp, "bin")
             neg_frame_path = self._find_file_in_database(neg_timestamp, "frame")
+            neg_event_path = self._find_file_in_database(neg_timestamp, "event")
+
             if self.graph_as_frame:
                 if neg_graph_path is None:
                     raise FileNotFoundError(f"Negative sample not found for timestamp {neg_timestamp}")
@@ -198,6 +201,11 @@ class QueryDataset(Dataset):
                 if self.graph_transform:
                     neg_graph = self.graph_transform(neg_graph)
                 neg_graphs_dict[neg_timestamp] = neg_graph
+            elif self.event_vpr_as_frame:
+                if neg_bin_vpr_path is None:
+                    raise FileNotFoundError(f"Negative sample not found for timestamp {neg_timestamp}")
+                neg_bin_vpr = get_data_from_path(neg_bin_vpr_path)
+                neg_bin_vpr_dict[neg_timestamp] = neg_bin_vpr
             else:
                 if neg_frame_path is None:
                     raise FileNotFoundError(f"Negative sample not found for timestamp {neg_timestamp}")
@@ -206,21 +214,11 @@ class QueryDataset(Dataset):
                     neg_frame = self.transform(neg_frame)
                 neg_frames_dict[neg_timestamp] = neg_frame
 
-            if not self.event_vpr:
-                neg_event_path = self._find_file_in_database(neg_timestamp, "event")
-            else:
-                neg_event_path = self._find_file_in_database(neg_timestamp, "bin")
-  
-    
-            if not self.event_vpr:
-                neg_event_volume = np.load(neg_event_path)
-                neg_event_volume = torch.tensor(neg_event_volume).float()
-                neg_event_volume = normalize_event_volume(neg_event_volume)
-                neg_event_volume = torch.nn.functional.interpolate(neg_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
-                neg_event_volumes_dict[neg_timestamp] = neg_event_volume
-            else:
-                data = get_data_from_path(neg_event_path)
-                neg_event_volumes_dict[neg_timestamp] = data  # neg_event_volumes [n,4]
+            neg_event_volume = np.load(neg_event_path)
+            neg_event_volume = torch.tensor(neg_event_volume).float()
+            neg_event_volume = normalize_event_volume(neg_event_volume)
+            neg_event_volume = torch.nn.functional.interpolate(neg_event_volume.unsqueeze(0), size=(256, 256), mode='bilinear', align_corners=False).squeeze(0)
+            neg_event_volumes_dict[neg_timestamp] = neg_event_volume
         
         if self.graph_as_frame:
             selected_pos_timestamps = list(pos_graphs_dict.keys())  # 字符串
@@ -228,6 +226,13 @@ class QueryDataset(Dataset):
             pos_graphs = [pos_graphs_dict[timestamp] for timestamp in selected_pos_timestamps]
             pos_event_volumes = [pos_event_volumes_dict[timestamp] for timestamp in selected_pos_timestamps]
             neg_graphs = [neg_graphs_dict[timestamp] for timestamp in selected_neg_timestamps]
+            neg_event_volumes = [neg_event_volumes_dict[timestamp] for timestamp in selected_neg_timestamps]
+        elif self.event_vpr_as_frame:
+            selected_pos_timestamps = list(pos_bin_vpr_dict.keys())  # 字符串
+            selected_neg_timestamps = list(neg_bin_vpr_dict.keys())
+            pos_bin_vpr = [pos_bin_vpr_dict[timestamp] for timestamp in selected_pos_timestamps]
+            pos_event_volumes = [pos_event_volumes_dict[timestamp] for timestamp in selected_pos_timestamps]
+            neg_bin_vpr = [neg_bin_vpr_dict[timestamp] for timestamp in selected_neg_timestamps]
             neg_event_volumes = [neg_event_volumes_dict[timestamp] for timestamp in selected_neg_timestamps]
         else:
             selected_pos_timestamps = list(pos_frames_dict.keys())  # 字符串
@@ -239,11 +244,15 @@ class QueryDataset(Dataset):
 
 
         # 如果 < 10, pad 0
-        if (self.graph_as_frame and len(pos_graphs) < 10) or (not self.graph_as_frame and len(pos_frames) < 10):
+        if (self.graph_as_frame and len(pos_graphs) < 10) or (self.event_vpr_as_frame and len(pos_bin_vpr) < 10) or (not self.graph_as_frame and not self.event_vpr_as_frame and len(pos_frames) < 10):
             if self.graph_as_frame:
                 padding_size = 10 - len(pos_graphs)
                 pos_graphs_padded = pos_graphs + [copy.deepcopy(pos_graphs[0]) for _ in range(padding_size)]
                 pos_graphs = pos_graphs_padded
+            elif self.event_vpr_as_frame:
+                padding_size = 10 - len(pos_bin_vpr)
+                pos_bin_vpr_padded = pos_bin_vpr + [copy.deepcopy(pos_bin_vpr[0]) for _ in range(padding_size)]
+                pos_bin_vpr = pos_bin_vpr_padded
             else:
                 padding_size = 10 - len(pos_frames)
                 pos_frames_padded = pos_frames + [torch.zeros_like(pos_frames[0]) for _ in range(padding_size)]
@@ -251,11 +260,15 @@ class QueryDataset(Dataset):
             pos_event_volumes_padded = pos_event_volumes + [torch.zeros_like(pos_event_volumes[0]) for _ in range(padding_size)]
             selected_pos_timestamps_padded = selected_pos_timestamps + [f"p{pad_index}" for pad_index in range(padding_size)]
             pos_event_volumes, selected_pos_timestamps = pos_event_volumes_padded, selected_pos_timestamps_padded
-        if (self.graph_as_frame and len(neg_graphs) < 100) or (not self.graph_as_frame and len(neg_frames) < 100):
+        if (self.graph_as_frame and len(neg_graphs) < 100) or (self.event_vpr_as_frame and len(neg_bin_vpr) < 100) or (not self.graph_as_frame and not self.event_vpr_as_frame and len(neg_frames) < 100):
             if self.graph_as_frame:
                 padding_size = 100 - len(neg_graphs)
                 neg_graphs_padded = neg_graphs + [copy.deepcopy(neg_graphs[0]) for _ in range(padding_size)]
                 neg_graphs = neg_graphs_padded
+            elif self.event_vpr_as_frame:
+                padding_size = 100 - len(neg_bin_vpr)
+                neg_bin_vpr_padded = neg_bin_vpr + [copy.deepcopy(neg_bin_vpr[0]) for _ in range(padding_size)]
+                neg_bin_vpr = neg_bin_vpr_padded
             else:
                 padding_size = 100 - len(neg_frames)
                 neg_frames_padded = neg_frames + [torch.zeros_like(neg_frames[0]) for _ in range(padding_size)]
@@ -266,5 +279,7 @@ class QueryDataset(Dataset):
 
         if self.graph_as_frame:
             return query_graph, query_event_volume, pos_graphs, pos_event_volumes, neg_graphs, neg_event_volumes, selected_pos_timestamps, selected_neg_timestamps
+        elif self.event_vpr_as_frame:
+            return query_bin_vpr, query_event_volume, pos_bin_vpr, pos_event_volumes, neg_bin_vpr, neg_event_volumes, selected_pos_timestamps, selected_neg_timestamps
         else:
             return query_frame, query_event_volume, pos_frames, pos_event_volumes, neg_frames, neg_event_volumes, selected_pos_timestamps, selected_neg_timestamps

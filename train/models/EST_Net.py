@@ -79,7 +79,7 @@ class ValueLayer(nn.Module):
 
 class EST_Net(nn.Module):
     def __init__(self, 
-                 voxel_dim = [9, 260, 346],  # C=9, H=260, W=346, 
+                 voxel_dim = [3, 260, 346],  # C=3, H=260, W=346, 
                  mlp_layers=[1, 30, 30, 1],
                  activation=nn.LeakyReLU(negative_slope=0.1)):
         super(EST_Net, self).__init__()

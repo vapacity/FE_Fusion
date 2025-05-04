@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from dataUtils import get_data_from_path, normalize_event_volume
 
 class DatabaseDataset(Dataset):
-    def __init__(self, database_dirs, transform=None, graph_transform=None, event_vpr=False, use_timestamps_from_gps=False, graph_as_frame=False):
+    def __init__(self, database_dirs, transform=None, graph_transform=None, event_vpr_as_frame=False, use_timestamps_from_gps=False, graph_as_frame=False):
         """
         Args:
             database_dirs (list): 数据库样本的文件夹路径列表。
@@ -18,7 +18,7 @@ class DatabaseDataset(Dataset):
         self.database_dirs = database_dirs
         self.transform = transform
         self.graph_transform = graph_transform
-        self.use_event_vpr = event_vpr
+        self.use_event_vpr_as_frame = event_vpr_as_frame
         self.use_timestamps_from_gps = use_timestamps_from_gps
         self.graph_as_frame = graph_as_frame
         # 获取所有数据库文件中的时间戳
@@ -121,7 +121,7 @@ class DatabaseDataset(Dataset):
             return os.path.exists(frame_path) and os.path.exists(event_path)
     
 
-    def _load_event_bin(self, dir, timestamp):
+    def _load_event_bin_vpr(self, dir, timestamp):
         """
         加载事件体素网格的bin（用于Event-VPR）
         Args:
@@ -147,15 +147,17 @@ class DatabaseDataset(Dataset):
             if self.check_all_data_exist(dir, timestamp):
                 if self.graph_as_frame:
                     graph = self._load_graph(dir, timestamp)
+                elif self.use_event_vpr_as_frame:
+                    vpr_bin = self._load_event_bin_vpr(dir, timestamp)
                 else:
                     frame = self._load_frame(dir, timestamp)
-                if self.use_event_vpr:
-                    event_volume = self._load_event_bin(dir, timestamp)
-                else:
-                    event_volume = self._load_event_volume(dir, timestamp)
+
+                event_volume = self._load_event_volume(dir, timestamp)
 
                 if self.graph_as_frame:
                     return graph, event_volume, timestamp
+                elif self.use_event_vpr_as_frame:
+                    return vpr_bin, event_volume, timestamp
                 else:
                     return frame, event_volume, timestamp
 

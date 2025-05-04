@@ -88,7 +88,21 @@ from torch_geometric.data import Data, Batch
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 from torch.utils.data.dataloader import default_collate
 
-def collate_database_normal(data, graph_as_frame):
+def collate_vpr_data(data):
+    # data[0] Batchsize of frames data[1] B N 4
+    events = []
+    for i, event in enumerate(data):
+        batch_index = torch.full((event.shape[0], 1), i, device=event.device)  # 创建 batch 维度
+        events.append(torch.cat([event, batch_index], dim=1))  # 拼接 batch 维, N,4 和 N,1 拼接成 N,5
+    # events = [
+    # [N_1, 5],  # 第 1 个样本的事件
+    # [N_2, 5],  # 第 2 个样本的事件
+    # ...
+    # [N_B, 5]]   # 第 B 个样本的事件
+    events = torch.cat(events, dim=0) # 拼成一个大的
+    return events
+
+def collate_database(data, graph_as_frame, event_vpr_as_frame):
     frames = []
     events = []
     timestamps = []
@@ -99,13 +113,15 @@ def collate_database_normal(data, graph_as_frame):
 
     if graph_as_frame:
         frames = Batch.from_data_list(frames)
+    elif event_vpr_as_frame:
+        frames = collate_vpr_data(frames)
     else:
         frames = default_collate(frames)
     events = default_collate(events)
     timestamps = default_collate(timestamps)
     return frames, events, timestamps
 
-def collate_query_normal(data, graph_as_frame):
+def collate_query(data, graph_as_frame, event_vpr_as_frame):
     query_frame_lst = []
     query_event_volume_lst = []
     pos_frames_lst = []
@@ -128,10 +144,15 @@ def collate_query_normal(data, graph_as_frame):
         query_frame_lst = Batch.from_data_list(query_frame_lst)
         pos_frames_lst = pos_frames_lst
         neg_frames_lst = neg_frames_lst
+    elif event_vpr_as_frame:
+        query_frame_lst = collate_vpr_data(query_frame_lst)   # 都是列表
+        pos_frames_lst = pos_frames_lst
+        neg_frames_lst = neg_frames_lst
     else:
         query_frame_lst = default_collate(query_frame_lst)
         pos_frames_lst = default_collate(pos_frames_lst)
         neg_frames_lst = default_collate(neg_frames_lst)
+    
     query_event_volume_lst = default_collate(query_event_volume_lst)
     pos_event_volumes_lst = default_collate(pos_event_volumes_lst)
     neg_event_volumes_lst = default_collate(neg_event_volumes_lst)
@@ -139,66 +160,6 @@ def collate_query_normal(data, graph_as_frame):
     selected_neg_timestamps_lst = default_collate(selected_neg_timestamps_lst)
     return query_frame_lst, query_event_volume_lst, pos_frames_lst, pos_event_volumes_lst, neg_frames_lst, neg_event_volumes_lst, selected_pos_timestamps_lst, selected_neg_timestamps_lst
 
-
-def collate_database_vpr(data, graph_as_frame):
-    # data[0] Batchsize of frames data[1] B N 4
-    frames = []
-    events = []
-    timestamps = []
-    for i, (frame, event, timestamp) in enumerate(data):
-
-        timestamps.append(timestamp)
-
-    if graph_as_frame:
-        frames = frames
-    else:
-        frames = default_collate(frames)
-    events = events     
-    # 后面main里面需要完善collate
-    #   frames.append(frame)
-    #   batch_index = torch.full((event.shape[0], 1), i, device=event.device)  # 创建 batch 维度
-    #   events.append(torch.cat([event, batch_index], dim=1))  # 拼接 batch 维, N,4 和 N,1 拼接成 N,5
-    # events = [
-    # [N_1, 5],  # 第 1 个样本的事件
-    # [N_2, 5],  # 第 2 个样本的事件
-    # ...
-    # [N_B, 5]]   # 第 B 个样本的事件
-    timestamps = default_collate(timestamps)
-    return frames, events, timestamps
-
-def collate_query_vpr(data, graph_as_frame):
-    query_frame_lst = []
-    query_event_volume_lst = []
-    pos_frames_lst = []
-    pos_event_volumes_lst = []
-    neg_frames_lst = []     # 要变成 N B shape
-    neg_event_volumes_lst = []
-    selected_pos_timestamps_lst = []
-    selected_neg_timestamps_lst = []
-
-    for i, (query_frame, query_event_volume, pos_frames, pos_event_volumes, neg_frames, neg_event_volumes, selected_pos_timestamps, selected_neg_timestamps) in enumerate(data):
-        query_frame_lst.append(query_frame)
-        query_event_volume_lst.append(query_event_volume)
-        pos_frames_lst.append(pos_frames)
-        pos_event_volumes_lst.append(pos_event_volumes)
-        neg_frames_lst.append(neg_frames)
-        neg_event_volumes_lst.append(neg_event_volumes)
-        selected_pos_timestamps_lst.append(selected_pos_timestamps)
-        selected_neg_timestamps_lst.append(selected_neg_timestamps)
-
-    if graph_as_frame:
-        query_frame_lst = Batch.from_data_list(query_frame_lst)
-    else:
-        query_frame_lst = default_collate(query_frame_lst)
-    query_event_volume_lst = query_event_volume_lst # 先保持原样，后续处理
-    pos_frames_lst = default_collate(pos_frames_lst)
-    pos_event_volumes_lst = pos_event_volumes_lst
-    neg_frames_lst = default_collate(neg_frames_lst)
-    neg_event_volumes_lst = neg_event_volumes_lst  # 先保持原样，后续处理
-    selected_pos_timestamps_lst = default_collate(selected_pos_timestamps_lst)
-    selected_neg_timestamps_lst = default_collate(selected_neg_timestamps_lst)
-
-    return query_frame_lst, query_event_volume_lst, pos_frames_lst, pos_event_volumes_lst, neg_frames_lst, neg_event_volumes_lst, selected_pos_timestamps_lst, selected_neg_timestamps_lst
 
 def update_test_features(model, database_loader):
     database_features = []

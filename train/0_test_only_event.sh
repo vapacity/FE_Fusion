@@ -1,0 +1,1 @@
+python test.py --use_event --save_descriptors

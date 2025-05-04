@@ -59,56 +59,56 @@ output_file_path = '/root/autodl-tmp/processed_data/'
 #     else:
 #         print(f"Event processing for {key} already done. Skipping...")
 
-print("filtering events and frames")
-for key, name in dataset.items():   # ss1, ss2
-    filt_reprocess(f"{output_file_path}{key}")
+# print("filtering events and frames")
+# for key, name in dataset.items():   # ss1, ss2
+#     filt_reprocess(f"{output_file_path}{key}")
 
-# 对每个数据集的timestamp进行预处理（提取时间戳）
-print("processing timestamp again for filtered")
-for key, name in dataset.items():
-    frame_dir = f"{output_file_path}{key}/frame/"
-    graph_processed_dir = f"{output_file_path}{key}/processed/"
-    output_file = f"{output_file_path}{key}/timestamp.txt"
-    write_timestamp_from_dir(frame_dir, graph_processed_dir, output_file)
+# # 对每个数据集的timestamp进行预处理（提取时间戳）
+# print("processing timestamp again for filtered")
+# for key, name in dataset.items():
+#     frame_dir = f"{output_file_path}{key}/frame/"
+#     graph_processed_dir = f"{output_file_path}{key}/processed/"
+#     output_file = f"{output_file_path}{key}/timestamp.txt"
+#     write_timestamp_from_dir(frame_dir, graph_processed_dir, output_file)
         
-# GPS信息的处理
-print("processing gps")
-write_all_gps()
+# # GPS信息的处理
+# print("processing gps")
+# write_all_gps()
 
-# 基于时间戳对GPS数据进行插值
-print("interpolating gps")
-for key, name in dataset.items():
-    timestamp_file = f"{output_file_path}{key}/timestamp.txt"
-    gps_file = f"{output_file_path}{key}/gps.txt"
-    interpolated_gps_file = f"{output_file_path}{key}/interpolated_gps.txt"
-    interpolate_gps_data_from_timestamp(timestamp_file, gps_file, interpolated_gps_file)
+# # 基于时间戳对GPS数据进行插值
+# print("interpolating gps")
+# for key, name in dataset.items():
+#     timestamp_file = f"{output_file_path}{key}/timestamp.txt"
+#     gps_file = f"{output_file_path}{key}/gps.txt"
+#     interpolated_gps_file = f"{output_file_path}{key}/interpolated_gps.txt"
+#     interpolate_gps_data_from_timestamp(timestamp_file, gps_file, interpolated_gps_file)
 
-# 查找三元组用于训练
-query_gps_paths = [f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment1 train
-                   f"{output_file_path}{'mn'}/interpolated_gps.txt", # experiment2 train
-                   f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment3 train
-                   f"{output_file_path}{'sr'}/interpolated_gps.txt"  # experiment4 train
-                  ]
+# # 查找三元组用于训练
+# query_gps_paths = [f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment1 train
+#                    f"{output_file_path}{'mn'}/interpolated_gps.txt", # experiment2 train
+#                    f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment3 train
+#                    f"{output_file_path}{'sr'}/interpolated_gps.txt"  # experiment4 train
+#                   ]
 
-test_query_gps_paths = [f"{output_file_path}{'ss2'}/interpolated_gps.txt", # experiment1 test
-                        f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment2 test
-                        f"{output_file_path}{'mn'}/interpolated_gps.txt", # experiment3 test
-                        f"{output_file_path}{'dt'}/interpolated_gps.txt"  # experiment4 test
-                        ]
+# test_query_gps_paths = [f"{output_file_path}{'ss2'}/interpolated_gps.txt", # experiment1 test
+#                         f"{output_file_path}{'sr'}/interpolated_gps.txt", # experiment2 test
+#                         f"{output_file_path}{'mn'}/interpolated_gps.txt", # experiment3 test
+#                         f"{output_file_path}{'dt'}/interpolated_gps.txt"  # experiment4 test
+#                         ]
 
-database_gps_paths = [
-    [f"{output_file_path}{'dt'}/interpolated_gps.txt", f"{output_file_path}{'mn'}/interpolated_gps.txt"],  # experiment1 train
-    [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'dt'}/interpolated_gps.txt"],  # experiment2 train
-    [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'dt'}/interpolated_gps.txt"],  # experiment3 train
-    [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'mn'}/interpolated_gps.txt"]   # experiment4 train
-]
+# database_gps_paths = [
+#     [f"{output_file_path}{'dt'}/interpolated_gps.txt", f"{output_file_path}{'mn'}/interpolated_gps.txt"],  # experiment1 train
+#     [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'dt'}/interpolated_gps.txt"],  # experiment2 train
+#     [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'dt'}/interpolated_gps.txt"],  # experiment3 train
+#     [f"{output_file_path}{'ss2'}/interpolated_gps.txt", f"{output_file_path}{'mn'}/interpolated_gps.txt"]   # experiment4 train
+# ]
 
-# 根据正负样本的条件查找三元组,挑选最远的正样本和最近的负样本
-for idx, (query_gps_path, db_paths) in enumerate(zip(query_gps_paths, database_gps_paths), start=1):
-    # 根据索引动态生成实验保存路径
-    save_dir = f"{output_file_path}triplets/experiment_{idx}_multi/"  # 保存的目录路径
-    save_file = f"{save_dir}triplet_result.txt"  # 保存的文件路径
+# # 根据正负样本的条件查找三元组,挑选最远的正样本和最近的负样本
+# for idx, (query_gps_path, db_paths) in enumerate(zip(query_gps_paths, database_gps_paths), start=1):
+#     # 根据索引动态生成实验保存路径
+#     save_dir = f"{output_file_path}triplets/experiment_{idx}_multi/"  # 保存的目录路径
+#     save_file = f"{save_dir}triplet_result.txt"  # 保存的文件路径
     
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir, exist_ok=True)  # 如果不存在则创建
-    find_triplet_samples(query_gps_path, db_paths, save_file)
+#     if not os.path.exists(save_dir):
+#         os.makedirs(save_dir, exist_ok=True)  # 如果不存在则创建
+#     find_triplet_samples(query_gps_path, db_paths, save_file)

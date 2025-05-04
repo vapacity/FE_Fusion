@@ -15,7 +15,6 @@ from dataloader.loaderUtils import *
 import argparse
 from datetime import datetime
 from loss import MultiNegativeTripletLoss
-from models.DIFT_Net import DiftNet
 from test_Recall_utils import recall_at_n_with_distance
 from torch.nn import CosineSimilarity
 import random
@@ -45,10 +44,12 @@ def set_seed(seed):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train FE-Net with different configurations.")
-    parser.add_argument('--use_frame', action='store_true', help="Use only frames (default: False)")
+    parser.add_argument('--use_frame', action='store_true', help="Use only frames (default: False)")    # 实际在185行控制
     parser.add_argument('--use_event', action='store_true', help="Use only events (default: False)")
-    parser.add_argument('--event_vpr', action='store_true', help="Reproduce Event VPR")
+    parser.add_argument('--event_vpr_as_frame', action='store_true', help="Reproduce Event VPR")
     parser.add_argument('--graph_as_frame', action='store_true', help="Use graph as frame")
+    parser.add_argument('--fusion_vpr_mid', action='store_true', help="Fusion VPR Mid")
+
     parser.add_argument('--experiment_name', type=str, default="experiment_3", help="Experiment Name")
     parser.add_argument('--num_epochs', type=int, default=200, help="num_epochs")
     parser.add_argument('--batch_size', type=int, default=4, help="batch_size")
@@ -70,8 +71,14 @@ if __name__ == "__main__":
         current_time = args.from_existing_weight_timestamp
     else:
         current_time = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    if args.use_frame and args.use_event:
-        current_time = current_time + "_FEFusion"
+    if args.graph_as_frame:
+        current_time = current_time + "_Graph"
+    elif args.event_vpr_as_frame and not args.use_event:
+        current_time = current_time + "_VPR_Only"
+    elif args.event_vpr_as_frame and args.use_event and args.fusion_vpr_mid:
+        current_time = current_time + "_VPR_Fusion_Mid"
+    elif args.event_vpr_as_frame and args.use_event:
+        current_time = current_time + "_VPR_Fusion"
     elif args.use_frame:
         current_time = current_time + "_Frame"
     elif args.use_event:
@@ -89,11 +96,11 @@ if __name__ == "__main__":
         else:
             wandb.init(
                 project=f"fe-fusion-{args.experiment_name}",
-                name=f"fe-fusion_graph_as_frame-originalGCN-nohalve-{current_time}",
+                name=f"fe-fusion_vpr-old_triplets_fusion-{current_time}",
                 config={
                     "use_frame": args.use_frame,
                     "use_event": args.use_event,
-                    "event_vpr": args.event_vpr,
+                    "event_vpr_as_frame": args.event_vpr_as_frame,
                     "graph_as_frame": args.graph_as_frame,
                     "experiment_name": args.experiment_name,
                     "num_epochs": args.num_epochs,
@@ -164,34 +171,36 @@ if __name__ == "__main__":
     channel_sizes = [128, 256, 512]
     global_num_negatives = 12
 
-    dataset = QueryDataset(triplet_file, query_dir, database_dirs, transform, graph_transform_train, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame)
-    databaseDataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame)    # train 时用不到gps信息，用gps的话可能会少一些数据
-    test_query_dataset = DatabaseDataset(database_dirs=[test_query_dir],transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
-    test_database_dataset = DatabaseDataset(database_dirs=test_database_dirs,transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
-    test_train_query_dataset =  DatabaseDataset(database_dirs=[query_dir],transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
-    test_train_database_dataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, graph_transform=graph_transform_test, event_vpr=args.event_vpr, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
+    dataset = QueryDataset(triplet_file, query_dir, database_dirs, transform, graph_transform_train, event_vpr_as_frame=args.event_vpr_as_frame, graph_as_frame=args.graph_as_frame)
+    databaseDataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, graph_transform=graph_transform_test, event_vpr_as_frame=args.event_vpr_as_frame, graph_as_frame=args.graph_as_frame)    # train 时用不到gps信息，用gps的话可能会少一些数据
+    test_query_dataset = DatabaseDataset(database_dirs=[test_query_dir],transform=transform, graph_transform=graph_transform_test, event_vpr_as_frame=args.event_vpr_as_frame, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
+    test_database_dataset = DatabaseDataset(database_dirs=test_database_dirs,transform=transform, graph_transform=graph_transform_test, event_vpr_as_frame=args.event_vpr_as_frame, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
+    test_train_query_dataset =  DatabaseDataset(database_dirs=[query_dir],transform=transform, graph_transform=graph_transform_test, event_vpr_as_frame=args.event_vpr_as_frame, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
+    test_train_database_dataset = DatabaseDataset(database_dirs=database_dirs,transform=transform, graph_transform=graph_transform_test, event_vpr_as_frame=args.event_vpr_as_frame, graph_as_frame=args.graph_as_frame, use_timestamps_from_gps=True)
 
-    if not args.event_vpr:
-        dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.num_workers, collate_fn=partial(collate_query_normal, graph_as_frame=args.graph_as_frame))
-        database_loader = DataLoader(databaseDataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_normal, graph_as_frame=args.graph_as_frame))
-        test_query_loader = DataLoader(test_query_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_normal, graph_as_frame=args.graph_as_frame))
-        test_database_loader = DataLoader(test_database_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_normal, graph_as_frame=args.graph_as_frame))
-        test_train_query_loader = DataLoader(test_train_query_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_normal, graph_as_frame=args.graph_as_frame))
-        test_train_database_loader = DataLoader(test_train_database_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_normal, graph_as_frame=args.graph_as_frame))
-    else:
-        dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.num_workers, collate_fn=partial(collate_query_vpr, graph_as_frame=args.graph_as_frame))
-        database_loader = DataLoader(databaseDataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_vpr, graph_as_frame=args.graph_as_frame))
-        test_query_loader = DataLoader(test_query_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_vpr, graph_as_frame=args.graph_as_frame))
-        test_database_loader = DataLoader(test_database_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_vpr, graph_as_frame=args.graph_as_frame))
-        test_train_query_loader = DataLoader(test_train_query_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_vpr, graph_as_frame=args.graph_as_frame))
-        test_train_database_loader = DataLoader(test_train_database_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database_vpr, graph_as_frame=args.graph_as_frame))
+    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=args.num_workers, collate_fn=partial(collate_query, graph_as_frame=args.graph_as_frame, event_vpr_as_frame=args.event_vpr_as_frame))
+    database_loader = DataLoader(databaseDataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database, graph_as_frame=args.graph_as_frame, event_vpr_as_frame=args.event_vpr_as_frame))
+    test_query_loader = DataLoader(test_query_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database, graph_as_frame=args.graph_as_frame, event_vpr_as_frame=args.event_vpr_as_frame))
+    test_database_loader = DataLoader(test_database_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database, graph_as_frame=args.graph_as_frame, event_vpr_as_frame=args.event_vpr_as_frame))
+    test_train_query_loader = DataLoader(test_train_query_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database, graph_as_frame=args.graph_as_frame, event_vpr_as_frame=args.event_vpr_as_frame))
+    test_train_database_loader = DataLoader(test_train_database_dataset, batch_size=BATCH_SIZE*args.test_batch_factor, shuffle=False, num_workers=args.num_workers, collate_fn=partial(collate_database, graph_as_frame=args.graph_as_frame, event_vpr_as_frame=args.event_vpr_as_frame))
 
     if args.graph_as_frame:
-        model = FE_Main_Net.MainNet(channel_sizes, use_frame=True, use_event=False, event_vpr=False, graph_as_frame=True).cuda()  # Only frames
+        if not args.use_event:
+            model = FE_Main_Net.MainNet(channel_sizes, use_frame=False, use_event=False, graph_as_frame=True).cuda()  # Only frames
+        else:
+            model = FE_Main_Net.MainNet(channel_sizes, use_frame=False, use_event=True, graph_as_frame=True).cuda()  # Only frames
+    elif args.event_vpr_as_frame:
+        if not args.use_event:
+            model = FE_Main_Net.MainNet(channel_sizes, use_frame=True, use_event=False, event_vpr_as_frame=True).cuda()  # Only event vpr
+        elif args.fusion_vpr_mid:
+            model = FE_Main_Net.MainNet(channel_sizes, use_frame=True, use_event=True, event_vpr_as_frame=True, fusion_vpr_mid=True).cuda()  # Only event vpr
+        else:
+            model = FE_Main_Net.MainNet(channel_sizes, use_frame=True, use_event=True, event_vpr_as_frame=True).cuda()  # Only event vpr
     elif args.use_frame:
-        model = FE_Main_Net.MainNet(channel_sizes, use_event=False, event_vpr=False).cuda()  # Only frames
+        model = FE_Main_Net.MainNet(channel_sizes, use_event=False).cuda()  # Only frames
     elif args.use_event:
-        model = FE_Main_Net.MainNet(channel_sizes, use_frame=False, event_vpr=args.event_vpr).cuda()  # Only events
+        model = FE_Main_Net.MainNet(channel_sizes, use_frame=False).cuda()  # Only events
     else:
         model = FE_Main_Net.MainNet(channel_sizes).cuda()  # Both frames and events
     if args.from_existing_weight_timestamp:
@@ -204,8 +213,8 @@ if __name__ == "__main__":
         if max_trained_epoch == 0:
             raise ValueError("No trained model found")
         else:
-            print(f"Load model from {os.path.join(save_dir, f'model_{"eventVPR" if args.event_vpr else "FEFusion"}_epoch_{max_trained_epoch}.pth')}")
-            model.load_state_dict(torch.load(os.path.join(save_dir, f'model_{"eventVPR" if args.event_vpr else "FEFusion"}_epoch_{max_trained_epoch}.pth')))
+            print(f"Load model from {os.path.join(save_dir, f'model_epoch_{max_trained_epoch}.pth')}")
+            model.load_state_dict(torch.load(os.path.join(save_dir, f'model_epoch_{max_trained_epoch}.pth')))
 
     ######################################### train parameters #########################################
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -239,7 +248,7 @@ if __name__ == "__main__":
 
     ######################################### main loop #########################################
     for epoch in range(num_epochs):
-        model_path = os.path.join(save_dir, f'model_{"eventVPR" if args.event_vpr else "FEFusion"}_epoch_{epoch+1}.pth')
+        model_path = os.path.join(save_dir, f'model_epoch_{epoch+1}.pth')
         if args.from_existing_weight_timestamp and epoch < max_trained_epoch:   # epoch 0 对应 权重 1，所以就是从权重+1开始
             continue
 
@@ -303,7 +312,7 @@ if __name__ == "__main__":
                     pos_timestamps_item = [pos_timestamps_item[i] for i in range(len(pos_timestamps_item)) if not pos_timestamps_item[i].startswith("p")]
                     neg_timestamps_item = [neg_timestamps_item[i] for i in range(len(neg_timestamps_item)) if not neg_timestamps_item[i].startswith("p")]
 
-                    if args.graph_as_frame:
+                    if args.graph_as_frame or args.event_vpr_as_frame:
                         pos_frames_and_event_volumes_dict = {pos_timestamps_item[i]: (pos_frames_multi[batch_idx][i], pos_event_volumes_multi[i][batch_idx]) for i in range(len(pos_timestamps_item))}
                         neg_frames_and_event_volumes_dict = {neg_timestamps_item[i]: (neg_frames_multi[batch_idx][i], neg_event_volumes_multi[i][batch_idx]) for i in range(len(neg_timestamps_item))}
                     else:
@@ -352,11 +361,15 @@ if __name__ == "__main__":
 
                 if args.graph_as_frame:
                     pos_frame = Batch.from_data_list(pos_frame_batch)
+                elif args.event_vpr_as_frame:
+                    pos_frame = collate_vpr_data(pos_frame_batch)
                 else:
                     pos_frame = torch.stack(pos_frame_batch)    # B C H W   # TODO: graph 要改成Batch.from_data_list(batch_data_list)
                 pos_event_volume = torch.stack(pos_event_volume_batch)
                 if args.graph_as_frame:
                     neg_frames = [Batch.from_data_list(neg_frames_batch[i]) for i in range(min_num_negatives)]
+                elif args.event_vpr_as_frame:
+                    neg_frames = [collate_vpr_data(neg_frames_batch[i]) for i in range(min_num_negatives)]
                 else:
                     neg_frames = [torch.stack(neg_frames_batch[i]) for i in range(min_num_negatives)]
                 neg_event_volumes = [torch.stack(neg_event_volumes_batch[i]) for i in range(min_num_negatives)]

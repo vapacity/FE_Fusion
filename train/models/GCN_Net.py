@@ -9,9 +9,7 @@ import torch_geometric
 from torch_geometric.nn import voxel_grid, max_pool, max_pool_x, GMMConv
 import os
 import sys
-from models.MF_Net import NetVLAD
-from torch_scatter import scatter_max
-from torch_geometric.nn import global_max_pool
+from models.NetVLAD import NetVLAD
 
 def custom_voxel_grid(pos, voxel_size, batch=None):
     """
@@ -61,6 +59,17 @@ class GraphResidualBlock(torch.nn.Module):
             self.shortcut_conv(data.x, data.edge_index, data.edge_attr)))
 
         return data
+    
+class FinalBlock(torch.nn.Module):
+    def __init__(self, in_channel, out_channel):
+        super(FinalBlock, self).__init__()
+        self.conv1 = GMMConv(in_channel, out_channel, dim=3, kernel_size=5)
+        self.bn1 = torch.nn.BatchNorm1d(out_channel)
+
+    def forward(self, data):
+        data.x = self.bn1(self.conv1(data.x, data.edge_index, data.edge_attr))
+        return data
+    
 
 class GCN_Net(torch.nn.Module):
     def __init__(self):
@@ -71,6 +80,48 @@ class GCN_Net(torch.nn.Module):
         x = self.extractor(data)
         return x
 
+class GCN_Extractor_v3(torch.nn.Module):
+    def __init__(self):
+        super(GCN_Extractor_v3, self).__init__()
+        self.conv1 = GMMConv(1, 64, dim=3, kernel_size=5)
+        self.bn1 = torch.nn.BatchNorm1d(64)
+        self.block1 = GraphResidualBlock(64, 128)
+        self.block2 = GraphResidualBlock(128, 256)
+        self.block3 = GraphResidualBlock(256, 1024)
+        self.block4 = FinalBlock(1024, 4096)
+        self.input_dim = 1 * 4096
+        self.fc = torch.nn.Linear(self.input_dim, 2048)
+
+    def forward(self, data):
+        conv1_output = self.conv1(data.x, data.edge_index, data.edge_attr)  # 相当于每个节点做 1*1 升维
+        data.x = F.elu(self.bn1(conv1_output))
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=4)    # 4*4*4
+        data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
+
+        data = self.block1(data)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=6)    # 6*6*6
+        data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
+
+        data = self.block2(data)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=24)   # 24*24*24
+        data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
+
+        data = self.block3(data)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=64)   # 260 / 64 = 4, 360 
+        data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
+        # breakpoint()
+        data = self.block4(data)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=256)   # 256*256*256
+        x = max_pool_x(cluster, data.x, data.batch, size=1)
+        # 得到1个voxel
+
+        # 取0是因为返回值为(x, None)
+        x = x[0].view(-1, self.input_dim)   # B, 4096
+        x = self.fc(x)
+        x = F.normalize(x, p=2, dim=1)
+        return x
+    
+
 class GCN_Extractor_v2(torch.nn.Module):
     def __init__(self):
         super(GCN_Extractor_v2, self).__init__()
@@ -78,35 +129,36 @@ class GCN_Extractor_v2(torch.nn.Module):
         self.bn1 = torch.nn.BatchNorm1d(64)
         self.block1 = GraphResidualBlock(64, 128)
         self.block2 = GraphResidualBlock(128, 256)
-        self.block3 = GraphResidualBlock(256, 512)
-        self.input_dim = 512
-        self.fc = torch.nn.Linear(self.input_dim, 256)
-        self.VLAD = NetVLAD(dim=256)
+        self.block3 = GraphResidualBlock(256, 1024)
+        self.block4 = GraphResidualBlock(1024, 2048)
+        self.input_dim = 1 * 2048
 
     def forward(self, data):
         conv1_output = self.conv1(data.x, data.edge_index, data.edge_attr)  # 相当于每个节点做 1*1 升维
         data.x = F.elu(self.bn1(conv1_output))
-        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=4)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=4)    # 4*4*4
         data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
 
         data = self.block1(data)
-        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=6)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=6)    # 6*6*6
         data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
 
         data = self.block2(data)
-        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=24)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=24)   # 24*24*24
         data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
 
         data = self.block3(data)
-        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=32)      
-        x = max_pool_x(cluster, data.x, data.batch, size=64)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=64)   # 260 / 64 = 4, 360 
+        data = max_pool(cluster, data, transform=T.Cartesian(cat=False))
+        # breakpoint()
+        data = self.block4(data)
+        cluster = voxel_grid(pos=data.pos, batch=data.batch, size=256)   # 256*256*256
+        x = max_pool_x(cluster, data.x, data.batch, size=1)
+        # 得到1个voxel
+
         # 取0是因为返回值为(x, None)
-        # x[0] size为 B x 64, 512
-        batch_size = data.batch.max().item() + 1
-        x = x[0].view(batch_size, 64, 512)  # B x 64 x 512
-        x = self.fc(x)                      # B x 64 x 256
-        x = x.permute(0, 2, 1).view(batch_size, 256, 8, 8)  # B x 256 x 8 x 8
-        x = self.VLAD(x)
+        x = x[0].view(-1, self.input_dim)   # B, 2048
+        x = F.normalize(x, p=2, dim=1)
         return x
 
 class GCN_Extractor(torch.nn.Module):

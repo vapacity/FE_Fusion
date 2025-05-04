@@ -4,6 +4,7 @@ from PIL import Image
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models import resnet34
+from models.CBAM import CBAM
 
 """
 TSFE-Net
@@ -34,64 +35,20 @@ class BasicConv(nn.Module):
             x = self.relu(x)
         return x
 
-class ChannelAttention(nn.Module):
-    def __init__(self, in_planes, ratio=16):
-        super(ChannelAttention, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.max_pool = nn.AdaptiveMaxPool2d(1)
-
-        self.fc1 = nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False)
-        self.relu1 = nn.ReLU()
-        self.fc2 = nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        avg_out = self.fc2(self.relu1(self.fc1(self.avg_pool(x))))
-        max_out = self.fc2(self.relu1(self.fc1(self.max_pool(x))))
-        out = avg_out + max_out
-        return self.sigmoid(out)
-
-
-class SpatialAttention(nn.Module):
-    def __init__(self, kernel_size=7):
-        super(SpatialAttention, self).__init__()
-
-        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
-        padding = 3 if kernel_size == 7 else 1
-
-        self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)  # 7,3     3,1
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        avg_out = torch.mean(x, dim=1, keepdim=True)
-        max_out, _ = torch.max(x, dim=1, keepdim=True)
-        x = torch.cat([avg_out, max_out], dim=1)
-        x = self.conv1(x)
-        return self.sigmoid(x)
-
-class CBAM(nn.Module):
-    def __init__(self, in_planes, ratio=16, kernel_size=7):
-        super(CBAM, self).__init__()
-        self.ca = ChannelAttention(in_planes, ratio)
-        self.sa = SpatialAttention(kernel_size)
-        
-    def forward(self, x):
-        out = x * self.ca(x)
-        result = out * self.sa(out)
-        return result
 
 class TSFE_Net(nn.Module):
-    def __init__(self, mid_channels=64, use_frame=True, use_event=True, event_vpr=False):
+    def __init__(self, mid_channels=64, use_frame=True, use_event=True, event_vpr_as_frame=False, output_both=False):
         super(TSFE_Net, self).__init__()
         self.use_frame = use_frame  # 标志，指示是否使用 frame 数据
         self.use_event = use_event  # 标志，指示是否使用 event 数据
-        self.event_vpr = event_vpr
+        self.event_vpr_as_frame = event_vpr_as_frame
+        self.output_both = output_both
         resnet = resnet34(pretrained=False)
 
         # 定义 frame 和 event 的处理流
         self.conv1_frame = BasicConv(1, mid_channels, kernel_size=7, stride=2, padding=3)
         self.conv1_event = BasicConv(2, mid_channels, kernel_size=7, stride=2, padding=3)
-        self.conv1_vpr = BasicConv(18, mid_channels, kernel_size=7, stride=2, padding=3)
+        self.conv1_vpr = BasicConv(6, mid_channels, kernel_size=7, stride=2, padding=3)
 
         self.attn1 = CBAM(mid_channels)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -100,14 +57,15 @@ class TSFE_Net(nn.Module):
         self.bn = nn.BatchNorm2d(mid_channels)
         self.relu = nn.ReLU(inplace=True)
 
-    def forward_stream(self, x, is_event=False):
+    def forward_stream(self, x, is_event=False, is_vpr=False):
         if is_event:
-            if self.event_vpr:
+            x = self.conv1_event(x)
+        else:
+            if is_vpr:
                 x = self.conv1_vpr(x)
             else:
-                x = self.conv1_event(x)
-        else:
-            x = self.conv1_frame(x)
+                x = self.conv1_frame(x)
+
         x = self.attn1(x)
         x = self.maxpool(x)
         x = self.conv2(x)
@@ -118,8 +76,8 @@ class TSFE_Net(nn.Module):
 
     def forward(self, frame, event):
         if self.use_frame and self.use_event:
-            frame_features = self.forward_stream(frame, is_event=False)  # shape: (B, C, ...)
-            event_features = self.forward_stream(event, is_event=True)
+            frame_features = self.forward_stream(frame, is_event=False, is_vpr=self.event_vpr_as_frame)  # shape: (B, C, ...)
+            event_features = self.forward_stream(event, is_event=True, is_vpr=self.event_vpr_as_frame)
 
             # if self.training:
             #     B = frame_features.shape[0]
@@ -134,17 +92,19 @@ class TSFE_Net(nn.Module):
 
             #     frame_features = frame_features * frame_mask
             #     event_features = event_features * event_mask
-
-            merged_features = torch.cat([frame_features, event_features], dim=1)
-            return merged_features
+            if self.output_both:
+                return torch.cat([frame_features, torch.zeros_like(frame_features)], dim=1), torch.cat([torch.zeros_like(event_features), event_features], dim=1)
+            else:
+                merged_features = torch.cat([frame_features, event_features], dim=1)
+                return merged_features
         elif self.use_frame:
             # 仅使用 frame 数据，event置0
-            frame_features = self.forward_stream(frame, is_event=False)
+            frame_features = self.forward_stream(frame, is_event=False, is_vpr=self.event_vpr_as_frame)
             doubled_features = torch.cat([frame_features, torch.zeros_like(frame_features)], dim=1)
             return doubled_features
         elif self.use_event:
             # 仅使用 event 数据，frame置0
-            event_features = self.forward_stream(event, is_event=True)
+            event_features = self.forward_stream(event, is_event=True, is_vpr=self.event_vpr_as_frame)
             doubled_features = torch.cat([torch.zeros_like(event_features), event_features], dim=1)
             return doubled_features
         else:

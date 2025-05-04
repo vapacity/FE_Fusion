@@ -26,23 +26,9 @@ def get_data_from_path(event_path):
         print("no event data exist")
         return torch.zeros((1, 4), dtype=torch.float)
 
-    # 解析第一行，获取基准时间
-    first_components = event_data[0]
-    first_secs, first_nsecs = int(first_components[0]), int(first_components[1])
-
-
-    for event_line in event_data:
-        if len(event_line) == 5:  # 确保行包含 5 个元素 (secs, nsecs, x, y, p)
-            secs, nsecs, x, y, p = map(int, event_line)
-            # 计算相对时间戳（纳秒）
-
-            t = (secs - first_secs) * int(1e6) + (nsecs - first_nsecs) / int(1e3)   # 防止上溢
-            data.append([t, x, y, p])
-            # print(f"event:{[t, x, y, p]}")
-
-
-    # 转换为 Tensor
-    del event_data
-    data = torch.tensor(data, dtype=torch.float)
+    first_secs, first_nsecs = event_data[0, 0], event_data[0, 1]
+    rel_time = (event_data[:, 0] - first_secs) * 1e6 + (event_data[:, 1] - first_nsecs) / 1e3
+    data = np.stack((rel_time, event_data[:, 2], event_data[:, 3], event_data[:, 4]), axis=1).astype(np.float32)    # t, x, y, p
+    data = torch.from_numpy(data).float()
 
     return data

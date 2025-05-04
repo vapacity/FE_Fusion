@@ -1,0 +1,1 @@
+python train.py --event_vpr_as_frame --use_event --fusion_vpr_mid --test_batch_factor 4

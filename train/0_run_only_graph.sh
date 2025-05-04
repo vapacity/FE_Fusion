@@ -1,0 +1,1 @@
+python train.py --graph_as_frame --test_batch_factor 4
